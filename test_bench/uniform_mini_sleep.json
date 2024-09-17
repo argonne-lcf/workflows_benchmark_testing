@@ -1,0 +1,13 @@
+{
+    "name": "uniform_mini_sleep",
+    "tasks": {"all_tasks":
+                    {"ntasks": 10,
+                    "app": "./sleeper.sh",
+                    "args": {"sleep_time": 10},
+                    "nodes_per_task": 1,
+                    "cpu_threads_per_task": 1,
+                    "gpus_per_task": 1,
+                    "ranks_per_task": 1
+                    }
+            }
+}
