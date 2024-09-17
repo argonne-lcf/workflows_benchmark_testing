@@ -36,23 +36,26 @@ with Stream(io, "setup", "w", comm) as stream:
         print(f'Simulation [{rank}]: sent setup data',flush=True) 
     stream.end_step()
 
-# Imitating simulation steps
-sleep(2.0)
+# Loop over workflow steps
+workflow_steps = 2
+for istep in range(workflow_steps):
+    # Imitating simulation steps
+    sleep(2.0)
+    if istep>0: myArray += increment
 
-# Send training data
-with Stream(io, "train_data", "w", comm) as stream:
-    stream.begin_step()
-    stream.write("y", myArray, [size * nx], [rank * nx], [nx])
-    myArray += increment
-    print(f"Simulaiton [{rank}]: sent data = {myArray}", flush=True)
-    stream.end_step()
+    # Send training data
+    with Stream(io, "train_data", "w", comm) as stream:
+        stream.begin_step()
+        stream.write("y", myArray, [size * nx], [rank * nx], [nx])
+        print(f"Simulaiton [{rank}]: sent data = {myArray}", flush=True)
+        stream.end_step()
 
-# Read model
-with Stream(io, "model", "r", comm) as stream:
-    stream.begin_step()
-    model = stream.read("model")
-    stream.end_step()
-    print(f'Simulation [{rank}]: simulation read model {model}',flush=True) 
+    # Read model
+    with Stream(io, "model", "r", comm) as stream:
+        stream.begin_step()
+        model = stream.read("model")
+        stream.end_step()
+        print(f'Simulation [{rank}]: simulation read model checkpoint {model}',flush=True) 
 
 
 
