@@ -12,12 +12,14 @@ size = comm.Get_size()
 adios = Adios(comm)
 
 # ADIOS IO
-io = adios.declare_io("myIO")
-io.set_engine("Sst")
+io = adios.declare_io("simai")
+io.set_engine("SST")
 parameters = {
     'RendezvousReaderCount': '1', # options: 1 for sync, 0 for async
     'QueueFullPolicy': 'Block', # options: Block, Discard
-    'DataTransport': 'WAN' # options: MPI, WAN,  UCX, fabric
+    'QueueLimit': '1', # options: 0 for no limit
+    'DataTransport': 'WAN', # options: MPI, WAN,  UCX, RDMA
+    'OpenTimeoutSecs': '600', # number of seconds SST is to wait for a peer connection on Open()
 }
 io.set_parameters(parameters)
 
