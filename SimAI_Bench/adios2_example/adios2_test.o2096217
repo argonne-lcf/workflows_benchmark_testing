@@ -1,0 +1,166 @@
+
+Lmod is automatically replacing "nvhpc/23.9" with "gcc-native/12.3".
+
+
+Lmod is automatically replacing "PrgEnv-nvhpc/8.5.0" with "PrgEnv-gnu/8.5.0".
+
+
+Due to MODULEPATH changes, the following have been reloaded:
+  1) cray-mpich/8.1.28
+
+Loaded modules:
+
+Currently Loaded Modules:
+  1) libfabric/1.15.2.0       23) craype-accel-nvidia80
+  2) craype-network-ofi       24) gdbm/1.23
+  3) perftools-base/23.12.0   25) libiconv/1.17-sucm6dh
+  4) darshan/3.4.4            26) gettext/0.22.3
+  5) xalt/3.0.2-202408282050  27) sqlite/3.43.2-nvei7w3
+  6) gcc-native/12.3          28) python/3.10.9
+  7) craype/2.7.30            29) libaec/1.0.6-pffye5i
+  8) cray-dsmml/0.2.2         30) hdf5/1.14.3
+  9) cray-mpich/8.1.28        31) kokkos-nvcc-wrapper/4.1.00-723u5fd
+ 10) cray-pmi/6.1.13          32) kokkos/4.3.00-omp-cuda
+ 11) cray-pals/1.3.4          33) libcatalyst/2.0.0-rc4-serial-yxddztc
+ 12) cray-libpals/1.3.4       34) lzo/2.10
+ 13) craype-x86-milan         35) libarchive/3.7.1-ggoqw7a
+ 14) PrgEnv-gnu/8.5.0         36) protobuf/3.21.12
+ 15) spack-pe-base/0.7.1      37) nvcomp/2.2.0-cuda-rgqimci
+ 16) spack-pe-gnu/0.7.1       38) yaml-cpp/0.7.0-drvrkxs
+ 17) bzip2/1.0.8              39) mgard/2023-03-31-omp-cuda-glpgrs6
+ 18) lizard/1.0-j6suobi       40) py-mpi4py/3.1.4
+ 19) lz4/1.9.4                41) cray-libsci/23.12.5
+ 20) snappy/1.1.10-csnxbiu    42) py-numpy/1.26.1
+ 21) c-blosc2/2.11.1-j52ndix  43) sz/2.1.12.5
+ 22) nvhpc-mixed/23.9         44) adios2/2.10.0-cuda
+
+ 
+
+Number of nodes: 1
+Number of simulation ranks: 4
+Number of simulation ranks per node: 4
+Number of trainer ranks: 4
+Number of trainer ranks per node: 4
+
+Running workflow ...
+Tue 24 Sep 2024 05:17:43 PM UTC
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: You are likely oversubscribing your CPU cores.
+                                    Detected: 64 cores per node.
+                                    Detected: 4 MPI_ranks per node.
+                                    Requested: 64 threads per process.
+Simulation [0]: sent setup data
+Trainer [0]: simulation running with 4 processes
+Trainer [1]: simulation running with 4 processes
+Trainer [2]: simulation running with 4 processes
+Trainer [3]: simulation running with 4 processes
+Simulaiton [0]: sent data = [0. 1. 2. 3. 4. 5. 6. 7. 8. 9.]
+Simulaiton [1]: sent data = [10. 11. 12. 13. 14. 15. 16. 17. 18. 19.]
+Simulaiton [2]: sent data = [20. 21. 22. 23. 24. 25. 26. 27. 28. 29.]
+Simulaiton [3]: sent data = [30. 31. 32. 33. 34. 35. 36. 37. 38. 39.]
+Trainer [0]: training with data = [0. 1. 2. 3. 4. 5. 6. 7. 8. 9.]
+Trainer [1]: training with data = [10. 11. 12. 13. 14. 15. 16. 17. 18. 19.]
+Trainer [2]: training with data = [20. 21. 22. 23. 24. 25. 26. 27. 28. 29.]
+Trainer [3]: training with data = [30. 31. 32. 33. 34. 35. 36. 37. 38. 39.]
+Trainer [0]: sent model
+Simulation [0]: simulation read model checkpoint 0
+Simulation [1]: simulation read model checkpoint 0
+Simulation [2]: simulation read model checkpoint 0
+Simulation [3]: simulation read model checkpoint 0
+Simulaiton [0]: sent data = [40. 41. 42. 43. 44. 45. 46. 47. 48. 49.]
+Simulaiton [1]: sent data = [50. 51. 52. 53. 54. 55. 56. 57. 58. 59.]
+Simulaiton [2]: sent data = [60. 61. 62. 63. 64. 65. 66. 67. 68. 69.]
+Simulaiton [3]: sent data = [70. 71. 72. 73. 74. 75. 76. 77. 78. 79.]
+Trainer [2]: training with data = [60. 61. 62. 63. 64. 65. 66. 67. 68. 69.]
+Trainer [1]: training with data = [50. 51. 52. 53. 54. 55. 56. 57. 58. 59.]
+Trainer [3]: training with data = [70. 71. 72. 73. 74. 75. 76. 77. 78. 79.]
+Trainer [0]: training with data = [40. 41. 42. 43. 44. 45. 46. 47. 48. 49.]
+Simulation [0]: simulation read model checkpoint 1
+Trainer [0]: sent model
+Simulation [1]: simulation read model checkpoint 1
+Simulation [2]: simulation read model checkpoint 1
+Simulation [3]: simulation read model checkpoint 1
+Tue 24 Sep 2024 05:18:02 PM UTC
