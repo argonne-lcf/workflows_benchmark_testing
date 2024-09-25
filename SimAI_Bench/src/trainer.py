@@ -32,7 +32,6 @@ def main():
     size = comm.Get_size()
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
-    comm.Barrier()
 
     # Parse arguments
     parser = ArgumentParser(description='SimAI-Bench Trainer')
@@ -128,7 +127,7 @@ def main():
         start = count * rank
         if rank == size - 1:
             count += shape[0] % size
-        coords = stream.read('coords', [start], [count])
+        coords = stream.read('coords', [start], [count]).reshape((n_nodes,spatial_dim))
         assert coords.shape[0] == n_nodes and coords.shape[1] == spatial_dim       
  
         arr = stream.inquire_variable('edge_index')
@@ -137,12 +136,12 @@ def main():
         start = count * rank
         if rank == size - 1:
             count += shape[0] % size
-        edge_index = stream.read('edge_index', [start], [count])
-        assert edge_index.shape[0] == 2 and edge_index.shape[1] == n_edges      
+        edge_index = stream.read('edge_index', [start], [count]).reshape((2,n_edges))
+        assert edge_index.shape[0] == 2 and edge_index.shape[1] == n_edges
         
         stream.end_step()
     comm.Barrier()
-    if rank==0: logger.info('Trainer read problem definition')
+    if rank==0: logger.info('\nTrainer read problem definition')
 
     # Set device to run on
     torch.set_num_threads(1)
@@ -167,7 +166,7 @@ def main():
             device = torch.device('cpu')
             logger.warning(f"[{rank}]: no XPU devices available, xpu.device_count={torch.xpu.device_count()}")
     if (rank == 0):
-        logger.info(f"Running on device: {device.type} \n")
+        logger.info(f"\nRunning on device: {device.type}\n")
 
     # Instantiate the model
     model = GNN(args, n_features, spatial_dim)
@@ -179,7 +178,10 @@ def main():
         model.to(device)
 
     # Loop over workflow steps
+    if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
+        if rank==0: logger.info(f'Step {istep_w}')
+
         # Read training data
         with Stream(io, "train_data", "r", comm) as stream:
             stream.begin_step()    
@@ -192,7 +194,7 @@ def main():
             train_data = stream.read('train_data', [start], [count])
             stream.end_step()
         comm.Barrier()
-        if rank==0: logger.info('Trainer read training data')
+        if rank==0: logger.info('\tRead training data')
 
         # Imitating training steps
         sleep(5.0)
@@ -204,7 +206,7 @@ def main():
                 stream.write('model', istep_w)
             stream.end_step()
         comm.Barrier()
-        if rank==0: logger.info('Trainer sent model')
+        if rank==0: logger.info('\tSent model')
 
     # Finalize MPI
     dist.destroy_process_group()

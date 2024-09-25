@@ -24,7 +24,6 @@ def main():
     size = comm.Get_size()
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
-    comm.Barrier()
 
     # Parse arguments
     parser = ArgumentParser(description='SimAI-Bench Simulation')
@@ -59,6 +58,7 @@ def main():
             core_list = []
         logger.debug(f"Hello from MPI rank {rank}/{size}, local rank {rankl}, " \
                      +f"cores {core_list}, and node {name}")
+    comm.Barrier()
     if rank==0:
         logger.info(f'\nRunning {args.problem_size} problem size, ')
         logger.info(f'with {args.adios_engine} ADIOS2 engine \n')
@@ -96,8 +96,11 @@ def main():
 
     # Loop over workflow steps
     step = 0
+    if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
-        # Imitating simulation steps
+        if rank==0: logger.info(f'Step {istep_w}')
+        
+         # Imitating simulation steps
         for istep_s in range(args.simulation_steps):
             train_data = simulation_step(step, args.problem_size, problem_def['coords'])
             step+=1
@@ -109,7 +112,7 @@ def main():
             stream.write('train_data', train_data, [size*arr_size], [rank*arr_size], [arr_size])
             stream.end_step()
         comm.Barrier()
-        if rank==0: logger.info('Simulation sent training data')
+        if rank==0: logger.info('\tSent training data')
 
         # Read model checkpoint
         with Stream(io, 'model', 'r', comm) as stream:
@@ -117,7 +120,7 @@ def main():
             model = stream.read("model")
             stream.end_step()
         comm.Barrier()
-        if rank==0: logger.info('Simulation read model checkpoint')
+        if rank==0: logger.info('\tRead model checkpoint')
 
     # Finalize MPI
     mh.close()
