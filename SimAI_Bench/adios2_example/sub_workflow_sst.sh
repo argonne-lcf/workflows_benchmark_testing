@@ -2,7 +2,7 @@
 #PBS -S /bin/bash
 #PBS -N adios2_test
 #PBS -l walltime=00:30:00
-#PBS -l select=64:ncpus=64:ngpus=4
+#PBS -l select=256:ncpus=64:ngpus=4
 #PBS -l filesystems=home:eagle
 #PBS -k doe
 #PBS -j oe

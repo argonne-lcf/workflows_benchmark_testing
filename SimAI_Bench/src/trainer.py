@@ -1,6 +1,11 @@
-from mpi4py import MPI
+import os
+import socket
 import numpy as np
 from time import sleep
+import logging
+from argparse import ArgumentParser
+from datetime import datetime, timedelta
+import psutil
 
 from adios2 import Stream, Adios, bindings
 
@@ -11,9 +16,9 @@ from mpi4py import MPI
 import torch
 import torch.distributed as dist
 
-from .utils.logger import MPIFileHandler
-from .gnn.model import GNN
-from .utils.train_utils import 
+from utils.logger import MPIFileHandler
+from gnn.model import GNN
+import utils.train_utils as utils
 
 
 # Main trainer function
@@ -31,7 +36,7 @@ def main():
 
     # Parse arguments
     parser = ArgumentParser(description='SimAI-Bench Trainer')
-    parser.add_argument('--device', default='xpu', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run training on')
+    parser.add_argument('--device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run training on')
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
@@ -92,7 +97,7 @@ def main():
                             rank=int(rank),
                             world_size=int(size),
                             init_method='env://',
-                            timeout=datetime.timedelta(seconds=120))
+                            timeout=timedelta(seconds=120))
 
     # Initialize ADIOS MPI Communicator
     adios = Adios(comm)
@@ -112,6 +117,7 @@ def main():
         stream.begin_step()
         
         n_nodes = stream.read('n_nodes')
+        n_edges = stream.read('n_edges')
         n_features = stream.read('n_features')
         n_targets = stream.read('n_targets')
         spatial_dim = stream.read('spatial_dim')
@@ -123,7 +129,8 @@ def main():
         if rank == size - 1:
             count += shape[0] % size
         coords = stream.read('coords', [start], [count])
-        
+        assert coords.shape[0] == n_nodes and coords.shape[1] == spatial_dim       
+ 
         arr = stream.inquire_variable('edge_index')
         shape = arr.shape()
         count = int(shape[0] / size)
@@ -131,6 +138,7 @@ def main():
         if rank == size - 1:
             count += shape[0] % size
         edge_index = stream.read('edge_index', [start], [count])
+        assert edge_index.shape[0] == 2 and edge_index.shape[1] == n_edges      
         
         stream.end_step()
     comm.Barrier()
@@ -163,7 +171,7 @@ def main():
 
     # Instantiate the model
     model = GNN(args, n_features, spatial_dim)
-    model.setup_local_graph(icoords, edge_index)
+    model.setup_local_graph(coords, edge_index)
     n_params = utils.count_weights(model)
     if (rank == 0):
         logger.info(f"Loaded model with {n_params} trainable parameters \n")
