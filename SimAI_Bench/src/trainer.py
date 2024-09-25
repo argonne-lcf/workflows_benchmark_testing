@@ -183,8 +183,8 @@ def main():
         # Read training data
         with Stream(io, "train_data", "r", comm) as stream:
             stream.begin_step()    
-            var = stream.inquire_variable('train_data')
-            shape = var.shape()
+            arr = stream.inquire_variable('train_data')
+            shape = arr.shape()
             count = int(shape[0] / size)
             start = count * rank
             if rank == size - 1:

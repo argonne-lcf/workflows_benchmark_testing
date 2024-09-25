@@ -1,3 +1,4 @@
+from time import sleep
 import numpy as np
 import math
 from mpipartition import Partition
@@ -66,6 +67,8 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data = np.empty((n_samples,2))
         data[:,0] = u.flatten()
         data[:,1] = udt.flatten()
+        sleep(0.5)
+
     return data
 
 

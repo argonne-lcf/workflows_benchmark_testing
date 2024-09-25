@@ -1,5 +1,4 @@
 import numpy as np
-from time import sleep
 from argparse import ArgumentParser
 import logging
 from datetime import datetime
@@ -100,7 +99,6 @@ def main():
     for istep_w in range(args.workflow_steps):
         # Imitating simulation steps
         for istep_s in range(args.simulation_steps):
-            sleep(0.5)
             train_data = simulation_step(step, args.problem_size, problem_def['coords'])
             step+=1
 
