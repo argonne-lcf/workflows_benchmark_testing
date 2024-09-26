@@ -148,37 +148,36 @@ class GNN(nn.Module):
         else:
             return error
         
-    def create_data(self, cfg, rng) -> np.ndarray:
-        """"
-        Create synthetic training data for the model
-
-        :param cfg: DictConfig with training configuration parameters
-        :param rng: numpy random number generator
-        :return: numpy array with the rank-local training data 
-        """
-        n_nodes = self.graph_reduced.pos.shape[0]
-        data = np.float32(rng.normal(size=(n_nodes,self.cfg.input_channels+self.cfg.output_channels)))
-        return data
+    #def create_data(self, cfg, rng) -> np.ndarray:
+    #    """"
+    #    Create synthetic training data for the model
+    #
+    #    :param cfg: DictConfig with training configuration parameters
+    #    :param rng: numpy random number generator
+    #    :return: numpy array with the rank-local training data 
+    #    """
+    #    n_nodes = self.graph_reduced.pos.shape[0]
+    #    data = np.float32(rng.normal(size=(n_nodes,self.cfg.input_channels+self.cfg.output_channels)))
+    #    return data
     
-    def load_data(self, cfg, comm) -> np.ndarray:
+    def load_data(self, data_path, rank, size) -> np.ndarray:
         """"
         Load training data for the model
 
-        :param cfg: DictConfig with training configuration parameters
         :return: numpy array with the rank-local training data 
         """
-        main_path = cfg.data_path+"/"
-        x_key = 'x_rank_%d_size_%d' %(comm.rank,comm.size)
-        y_key = 'y_rank_%d_size_%d' %(comm.rank,comm.size)
+        main_path = data_path+"/"
+        x_key = 'x_rank_%d_size_%d' %(rank,size)
+        y_key = 'y_rank_%d_size_%d' %(rank,size)
 
         path_to_x = main_path + x_key
         path_to_y = main_path + y_key
         data_x = np.loadtxt(path_to_x, ndmin=2, dtype=np.float32)
         data_y = np.loadtxt(path_to_y, ndmin=2, dtype=np.float32)
-        assert data_x.shape[1] == self.cfg.input_channels, \
-            f"Created model with {self.cfg.input_channels} input channels, but loaded data has {data_x.shape[1]}"
-        assert data_y.shape[1] == self.cfg.output_channels, \
-            f"Created model with {self.cfg.output_channels} output channels, but loaded data has {data_y.shape[1]}"
+        assert data_x.shape[1] == self.input_channels, \
+            f"Created model with {self.input_channels} input channels, but loaded data has {data_x.shape[1]}"
+        assert data_y.shape[1] == self.output_channels, \
+            f"Created model with {self.output_channels} output channels, but loaded data has {data_y.shape[1]}"
 
         # Get data in reduced format (non-overlapping)
         data_x_reduced = data_x[self.idx_full2reduced, :]
@@ -247,24 +246,10 @@ class GNN(nn.Module):
             }
         }
     
-    def online_dataloader(self, cfg, client, comm, keys: list, logger, shuffle: Optional[bool] = False) \
-                        -> Tuple[torch.utils.data.DataLoader, float]:
+    def online_dataloader(self, tensor_list, shuffle: Optional[bool] = False):
         """
-        Load data from database and create on-rank data loader
+        Create on-rank data loader in case of online training
         """
-        logger.debug(f'[{comm.rank}]: Grabbing tensors with key {keys}')
-
-        if (cfg.precision == "fp32" or cfg.precision == "tf32"):
-            dtype = torch.float32
-        elif (cfg.precision == "fp64"):
-            dtype = torch.float64
-        elif (cfg.precision == "fp16"):
-            dtype = torch.float16
-        elif (cfg.precision == "bf16"):
-            dtype = torch.bfloat16
-
-        tensor_list = [torch.from_numpy(client.get_array(key, 'train')).type(dtype) \
-                            for key in keys]
 
         # Populate edge_attrs
         #cart = Cartesian(norm=False, max_value = None, cat = False)
@@ -274,16 +259,16 @@ class GNN(nn.Module):
 
         # Create dataset and data loader
         dataset = []
-        for i in range(len(keys)):
+        for i in range(len(tensor_list)):
             data = Data(
-                x = tensor_list[i][:,:self.cfg.input_channels],
-                y = tensor_list[i][:,self.cfg.input_channels:],
+                x = tensor_list[i][:,:self.input_channels],
+                y = tensor_list[i][:,self.input_channels:],
                 edge_index = self.graph_reduced["edge_index"],
                 pos = self.graph_reduced["pos"]
             )
             dataset.append(data)
-        data_loader = DataLoader(dataset, batch_size=cfg.mini_batch, 
-                                 shuffle=False)
+        data_loader = DataLoader(dataset, batch_size=self.cfg.batch_size, 
+                                 shuffle=shuffle)
         return data_loader
     
     def script_model(self):

@@ -1,4 +1,5 @@
 import os
+import io
 import socket
 import numpy as np
 from time import sleep
@@ -15,6 +16,8 @@ from mpi4py import MPI
 
 import torch
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.optim as optim
 
 from utils.logger import MPIFileHandler
 from gnn.model import GNN
@@ -40,6 +43,9 @@ def main():
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
     parser.add_argument('--training_steps', type=int, default=5, help='Number of training steps to execute per workflow step')
+    parser.add_argument('--precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for training')
+    parser.add_argument('--learning_rate', type=float, default=1.0e-4, help='Base leanring rate for optimizer')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for training')
     parser.add_argument('--hidden_channels', type=int, default=16, help='Number of hidden node features in GNN')
     parser.add_argument('--mlp_hidden_layers', type=int, default=2, help='Number of hidden layers for encoder/decoder, edge update, node update layers MLPs')
     parser.add_argument('--message_passing_layers', type=int, default=4, help='Number of GNN message pssing layers')
@@ -100,8 +106,8 @@ def main():
 
     # Initialize ADIOS MPI Communicator
     adios = Adios(comm)
-    io = adios.declare_io('SimAIBench')
-    io.set_engine(args.adios_engine)
+    aio = adios.declare_io('SimAIBench')
+    aio.set_engine(args.adios_engine)
     parameters = {
         'RendezvousReaderCount': '1', # options: 1 for sync, 0 for async
         'QueueFullPolicy': 'Block', # options: Block, Discard
@@ -109,17 +115,17 @@ def main():
         'DataTransport': 'WAN', # options: MPI, WAN,  UCX, RDMA
         'OpenTimeoutSecs': '600', # number of seconds SST is to wait for a peer connection on Open()
     }
-    io.set_parameters(parameters)
+    aio.set_parameters(parameters)
 
     # Read problem definition data
-    with Stream(io, 'problem_definition', 'r', comm) as stream:
+    with Stream(aio, 'problem_definition', 'r', comm) as stream:
         stream.begin_step()
         
-        n_nodes = stream.read('n_nodes')
-        n_edges = stream.read('n_edges')
-        n_features = stream.read('n_features')
-        n_targets = stream.read('n_targets')
-        spatial_dim = stream.read('spatial_dim')
+        n_nodes = int(stream.read('n_nodes'))
+        n_edges = int(stream.read('n_edges'))
+        n_features = int(stream.read('n_features'))
+        n_targets = int(stream.read('n_targets'))
+        spatial_dim = int(stream.read('spatial_dim'))
         
         arr = stream.inquire_variable('coords')
         shape = arr.shape()
@@ -168,22 +174,32 @@ def main():
     if (rank == 0):
         logger.info(f"\nRunning on device: {device.type}\n")
 
-    # Instantiate the model
+    # Instantiate and setup the model
     model = GNN(args, n_features, spatial_dim)
     model.setup_local_graph(coords, edge_index)
     n_params = utils.count_weights(model)
     if (rank == 0):
         logger.info(f"Loaded model with {n_params} trainable parameters \n")
-    if (device.type != 'cpu'):
-        model.to(device)
+    
+    if (args.precision == "fp32" or args.precision == "tf32"): model.float(); dtype=torch.float32
+    elif (args.precision == "fp64"): model.double(); dtype=torch.float64
+    elif (args.precision == "fp16"): model.half(); dtype=torch.float16
+    elif (args.precision == "bf16"): model.bfloat16(); dtype=torch.bfloat16
+    
+    if (device.type != 'cpu'): model.to(device)
+    model = DDP(model, broadcast_buffers=False, gradient_as_bucket_view=True)
+
+    # Initialize optimizer
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate*size)
 
     # Loop over workflow steps
     if rank==0: logger.info('\nStarting loop over workflow steps')
+    train_data_list = []
     for istep_w in range(args.workflow_steps):
         if rank==0: logger.info(f'Step {istep_w}')
 
         # Read training data
-        with Stream(io, "train_data", "r", comm) as stream:
+        with Stream(aio, "train_data", "r", comm) as stream:
             stream.begin_step()    
             arr = stream.inquire_variable('train_data')
             shape = arr.shape()
@@ -191,19 +207,45 @@ def main():
             start = count * rank
             if rank == size - 1:
                 count += shape[0] % size
-            train_data = stream.read('train_data', [start], [count])
+            train_data_list.append(torch.from_numpy(stream.read('train_data', [start], [count]).reshape((n_nodes,n_features+n_targets))).type(dtype))
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tRead training data')
 
-        # Imitating training steps
-        sleep(5.0)
+        # Update the data loader
+        data_loader = model.module.online_dataloader(train_data_list)
+        
+        # Train for a set number of steps
+        model.train()
+        for batch_idx, data in enumerate(data_loader):
+            if (device.type != 'cpu'):
+                data = data.to(device)
+
+            optimizer.zero_grad()
+            loss = model.module.training_step(data)
+            loss.backward()
+            optimizer.step()
+            
+            dist.all_reduce(loss, op=dist.ReduceOp.AVG)
+            if rank==0: logger.info(f'\tIter {batch_idx}: avg_loss = {loss:>4e}')
+            
+            if batch_idx+1 == args.training_steps: break
+
+        # Save model checkpoint
+        model.eval()
+        if rank==0:
+            jit_model = model.module.script_model()
+            buffer = io.BytesIO()
+            torch.jit.save(jit_model, buffer)
 
         # Send trained model back
-        with Stream(io, 'model', 'w', comm) as stream:
+        with Stream(aio, 'model', 'w', comm) as stream:
             stream.begin_step()
             if rank == 0:
-                stream.write('model', istep_w)
+                #stream.write('model', np.array([buffer]))
+                stream.write('checkpoint', istep_w)
+                for name, param in model.module.named_parameters():
+                    stream.write(name, param.detach().cpu().numpy())
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tSent model')

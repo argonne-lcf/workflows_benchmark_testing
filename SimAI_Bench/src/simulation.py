@@ -117,7 +117,15 @@ def main():
         # Read model checkpoint
         with Stream(io, 'model', 'r', comm) as stream:
             stream.begin_step()
-            model = stream.read("model")
+            checkpoint = stream.read('checkpoint')
+            if rank==0:
+                model_param_names = []
+                for name, info in stream.available_variables().items():
+                    if 'model' in name: model_param_names.append(name)
+                    #logger.info(f"variable_name: {name}")
+                    #for key, value in info.items():
+                    #    print("\t" + key + ": " + value, end=" ")
+                    #print("",flush=True)
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tRead model checkpoint')

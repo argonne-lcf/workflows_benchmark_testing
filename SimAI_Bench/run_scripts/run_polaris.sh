@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Load modules
-#module use /soft/modulefiles
-#module load spack-pe-gnu
-#module load adios2/2.10.0-cuda
-#module load cudatoolkit-standalone/12.4.0
-#source /eagle/datascience/balin/ALCF-4/venv/_adios2/bin/activate
+module use /soft/modulefiles
+module load spack-pe-gnu
+module load adios2/2.10.0-cuda
+module load cudatoolkit-standalone/12.4.0
+source /eagle/datascience/balin/ALCF-4/venv/_adios2/bin/activate
 echo Loaded modules:
 module list
 
