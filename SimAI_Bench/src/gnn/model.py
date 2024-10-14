@@ -107,9 +107,9 @@ class GNN(nn.Module):
                                   edge_index = torch.tensor(ei), 
                                   pos = torch.tensor(pos)) 
 
-    def training_step(self, batch) -> torch.Tensor:
+    def training_pass(self, batch) -> torch.Tensor:
         """
-        Perform a training step
+        Perform a training forward pass and loss computation
 
         :param batch: a torch.Tensor containing the batched inputs
         :return: loss for the batch
@@ -118,28 +118,28 @@ class GNN(nn.Module):
         loss = self.loss_fn(output, batch.y)
         return loss
     
-    def validation_step(self, batch) -> torch.Tensor:
+    def validation_pass(self, batch) -> torch.Tensor:
         """
-        Perform a validation step
+        Perform a validation forward pass and loss+error computation
 
         :param batch: a torch.Tensor containing the batched inputs and outputs
         :return: tuple with the accuracy and loss for the batch
         """
         output = self.model(batch.x, batch.edge_index, batch.pos)
-        error = self.loss_fn(output, batch.y)
+        error = self.acc_fn(output, batch.y)
         loss = self.loss_fn(output, batch.y)
         return error, loss
         
-    def test_step(self, batch, return_loss: Optional[bool] = False) -> torch.Tensor:
+    def test_pass(self, batch, return_loss: Optional[bool] = False) -> torch.Tensor:
         """
-        Perform a test step
+        Perform a test forward pass and loss+error computation
 
         :param batch: a tensor containing the batched inputs and outputs
         :param return_loss: whether to compute the loss on the testing data
         :return: tuple with the accuracy and loss for the batch
         """
         output = self.model(batch.x, batch.edge_index, batch.pos)
-        error = self.loss_fn(output, batch.y)
+        error = self.acc_fn(output, batch.y)
 
         if return_loss:
             # compute loss to compare agains training
@@ -147,6 +147,17 @@ class GNN(nn.Module):
             return error, loss
         else:
             return error
+
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
+        """ 
+        Perform a forward pass of the model
+
+        :param x: model input array
+        :param edge_index: graph edge index array
+        :param pos: graph node position array
+        :return: model output
+        """
+        return self.model(x, edge_index, pos)
         
     #def create_data(self, cfg, rng) -> np.ndarray:
     #    """"

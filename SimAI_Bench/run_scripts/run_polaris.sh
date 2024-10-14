@@ -15,7 +15,7 @@ EXE_PATH=/eagle/datascience/balin/ALCF-4/workflows_benchmark_testing/SimAI_Bench
 
 # Set up run
 NODES=$(cat $PBS_NODEFILE | wc -l)
-PROCS_PER_NODE=4
+PROCS_PER_NODE=2
 PROCS=$((NODES * PROCS_PER_NODE))
 JOBID=$(echo $PBS_JOBID | awk '{split($1,a,"."); print a[1]}')
 echo Number of nodes: $NODES

@@ -2,6 +2,7 @@ import numpy as np
 from argparse import ArgumentParser
 import logging
 from datetime import datetime
+from time import perf_counter
 import psutil
 
 from adios2 import Stream, Adios, bindings
@@ -10,8 +11,11 @@ import mpi4py
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 
+import torch
+
 from utils.logger import MPIFileHandler
 from utils.sim_utils import setup_problem, simulation_step
+from gnn.model import GNN
 
 # Main simulation function
 def main():
@@ -32,6 +36,11 @@ def main():
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--simulation_steps', type=int, default=5, help='Number of simulation steps to execute between training data transfers')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
+    parser.add_argument('--inference_precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for inference')
+    parser.add_argument('--inference_device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run inference on')
+    parser.add_argument('--hidden_channels', type=int, default=16, help='Number of hidden node features in GNN')
+    parser.add_argument('--mlp_hidden_layers', type=int, default=2, help='Number of hidden layers for encoder/decoder, edge update, node update layers MLPs')
+    parser.add_argument('--message_passing_layers', type=int, default=4, help='Number of GNN message pssing layers')
     parser.add_argument('--adios_engine', type=str, default='SST', choices=['SST'], help='ADIOS2 transport engine')
     args = parser.parse_args()
 
@@ -94,10 +103,22 @@ def main():
     comm.Barrier()
     if rank==0: logger.info('Simulation sent problem definition')
 
+    # Instantiate and setup the model
+    model = GNN(args, problem_def['n_features'], problem_def['spatial_dim'])
+    model.setup_local_graph(problem_def['coords'], problem_def['edge_index'])
+    if (args.inference_precision == "fp32" or args.inference_precision == "tf32"): model.float(); dtype=torch.float32
+    elif (args.inference_precision == "fp64"): model.double(); dtype=torch.float64
+    elif (args.inference_precision == "fp16"): model.half(); dtype=torch.float16
+    elif (args.inference_precision == "bf16"): model.bfloat16(); dtype=torch.bfloat16
+
     # Loop over workflow steps
     step = 0
+    timers = {
+        'workflow': [],
+    }
     if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
+        tic_w = perf_counter()
         if rank==0: logger.info(f'Step {istep_w}')
         
          # Imitating simulation steps
@@ -117,18 +138,39 @@ def main():
         # Read model checkpoint
         with Stream(io, 'model', 'r', comm) as stream:
             stream.begin_step()
-            checkpoint = stream.read('checkpoint')
-            if rank==0:
-                model_param_names = []
-                for name, info in stream.available_variables().items():
-                    if 'model' in name: model_param_names.append(name)
-                    #logger.info(f"variable_name: {name}")
-                    #for key, value in info.items():
-                    #    print("\t" + key + ": " + value, end=" ")
-                    #print("",flush=True)
+            for name, param in model.named_parameters():
+                count = stream.inquire_variable(name).shape()[0]
+                weights = torch.from_numpy(stream.read(name, [0], [count])).type(dtype)
+                weights_shape = stream.read_attribute(name+'/shape')
+                if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
+                with torch.no_grad():
+                    param.data = weights
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tRead model checkpoint')
+
+        # Perform inference
+        model.eval()
+        if (args.inference_device != 'cpu'): model.to(args.inference_device)
+        pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
+        ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(args.inference_device)
+        inputs = torch.from_numpy(train_data[:,problem_def['n_features']]).type(dtype).to(args.inference_device)
+        if inputs.ndim<2: inputs = inputs.reshape(-1,1)
+        outputs = torch.from_numpy(train_data[:,problem_def['n_features']:]).type(dtype).to(args.inference_device)
+        if outputs.ndim<2: outputs = outputs.reshape(-1,1)
+        prediction = model(inputs, ei, pos)
+        local_error = model.acc_fn(prediction, outputs)
+        global_error = comm.allreduce(local_error)
+        comm.Barrier()
+        if rank==0: logger.info(f'\tPerformed inference with global error: {global_error:>4e}')
+
+        # Debug
+        print(istep_w,'simulation rank ',rank,' : ',torch.sum(model(torch.ones((problem_def['n_nodes'],problem_def['n_features']),dtype=dtype,device=args.inference_device),ei,pos)),flush=True)
+
+        # Print workflow step time
+        time_w = perf_counter() - tic_w
+        if rank==0: logger.info(f'\tWorkflow step time [sec]: {time_w:>4e}')
+        timers['workflow'].append(time_w)
 
     # Finalize MPI
     mh.close()

@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
-    parser.add_argument('--training_steps', type=int, default=5, help='Number of training steps to execute per workflow step')
+    parser.add_argument('--training_iters', type=int, default=5, help='Number of training iterations to execute per workflow step')
     parser.add_argument('--precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for training')
     parser.add_argument('--learning_rate', type=float, default=1.0e-4, help='Base leanring rate for optimizer')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size for training')
@@ -215,37 +215,46 @@ def main():
         # Update the data loader
         data_loader = model.module.online_dataloader(train_data_list)
         
-        # Train for a set number of steps
+        # Train for a set number of iterations
         model.train()
-        for batch_idx, data in enumerate(data_loader):
-            if (device.type != 'cpu'):
-                data = data.to(device)
+        n_iters = 0
+        while n_iters < args.training_iters:
+            for batch_idx, batch in enumerate(data_loader):
+                if (device.type != 'cpu'):
+                    batch = batch.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            loss = model.module.training_step(data)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
+                loss = model.module.training_pass(batch)
+                loss.backward()
+                optimizer.step()
             
-            dist.all_reduce(loss, op=dist.ReduceOp.AVG)
-            if rank==0: logger.info(f'\tIter {batch_idx}: avg_loss = {loss:>4e}')
+                dist.all_reduce(loss, op=dist.ReduceOp.AVG)
+                if rank==0: logger.info(f'\tIter {n_iters}: avg_loss = {loss:>4e}')
             
-            if batch_idx+1 == args.training_steps: break
+                n_iters+=1
+                if n_iters == args.training_iters: break
+
 
         # Save model checkpoint
         model.eval()
-        if rank==0:
-            jit_model = model.module.script_model()
-            buffer = io.BytesIO()
-            torch.jit.save(jit_model, buffer)
+        #if rank==0:
+        #    jit_model = model.module.script_model()
+        #    buffer = io.BytesIO()
+        #    torch.jit.save(jit_model, buffer)
 
-        # Send trained model back
+        # Debug
+        print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
+
+        # Send model checkpoint
         with Stream(aio, 'model', 'w', comm) as stream:
             stream.begin_step()
             if rank == 0:
                 #stream.write('model', np.array([buffer]))
-                stream.write('checkpoint', istep_w)
                 for name, param in model.module.named_parameters():
-                    stream.write(name, param.detach().cpu().numpy())
+                    param_np = param.detach().cpu().numpy()
+                    arr_size = param_np.size
+                    stream.write(name, param_np, [size*arr_size], [rank*arr_size], [arr_size])
+                    stream.write_attribute(name+'/shape',param_np.shape)
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tSent model')
