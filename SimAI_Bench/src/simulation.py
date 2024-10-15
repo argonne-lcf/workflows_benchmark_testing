@@ -174,6 +174,25 @@ def main():
         if rank==0: logger.info(f'\tWorkflow step time [sec]: {time_w:>4e}')
         timers['workflow'].append(time_w)
 
+    # Average time data across steps
+    if rank==0:
+        logger.info(f'\nMetrics averaged across workflow steps:')
+        for key, val in timers.items():
+            if len(val)>2: val.pop(0)
+            avg = sum(val)/len(val)
+            logger.info(f'{key} [sec]: {avg:>4e}')
+        
+    # Print FOM
+    if rank==0:
+        logger.info(f'\nFOM:')
+        fom_problem = size * problem_def['n_nodes'] * (problem_def['n_features'] * 2)
+        fom_time = sum(timers['workflow'])/len(timers['workflow'])
+        aurora_workflow_steps = args.workflow_steps
+        fom_steps = 1 + 0.1 * (args.workflow_steps - aurora_workflow_steps) / aurora_workflow_steps
+        fom_1 = fom_problem * fom_steps / fom_time
+        logger.info(f'FOM 1: {fom_1:>4e}')
+         
+
     # Finalize MPI
     mh.close()
     MPI.Finalize()
