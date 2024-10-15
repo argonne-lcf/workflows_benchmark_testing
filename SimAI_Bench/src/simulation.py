@@ -110,6 +110,7 @@ def main():
     elif (args.inference_precision == "fp64"): model.double(); dtype=torch.float64
     elif (args.inference_precision == "fp16"): model.half(); dtype=torch.float16
     elif (args.inference_precision == "bf16"): model.bfloat16(); dtype=torch.bfloat16
+    if (args.inference_device != 'cpu'): model.to(args.inference_device)
 
     # Loop over workflow steps
     step = 0
@@ -144,22 +145,23 @@ def main():
                 weights_shape = stream.read_attribute(name+'/shape')
                 if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
                 with torch.no_grad():
-                    param.data = weights
+                    param.data = weights.to(args.inference_device)
             stream.end_step()
         comm.Barrier()
         if rank==0: logger.info('\tRead model checkpoint')
 
         # Perform inference
         model.eval()
-        if (args.inference_device != 'cpu'): model.to(args.inference_device)
-        pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
-        ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(args.inference_device)
+        if istep_w==0:
+            pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
+            ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(args.inference_device)
         inputs = torch.from_numpy(train_data[:,problem_def['n_features']]).type(dtype).to(args.inference_device)
         if inputs.ndim<2: inputs = inputs.reshape(-1,1)
         outputs = torch.from_numpy(train_data[:,problem_def['n_features']:]).type(dtype).to(args.inference_device)
         if outputs.ndim<2: outputs = outputs.reshape(-1,1)
-        prediction = model(inputs, ei, pos)
-        local_error = model.acc_fn(prediction, outputs)
+        with torch.no_grad():
+            prediction = model(inputs, ei, pos)
+            local_error = model.acc_fn(prediction, outputs)
         global_avg_error = comm.allreduce(local_error) / size
         comm.Barrier()
         if rank==0: logger.info(f'\tPerformed inference with global error: {global_avg_error:>4e}')
