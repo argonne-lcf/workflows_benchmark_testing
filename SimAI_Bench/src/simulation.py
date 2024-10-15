@@ -160,12 +160,12 @@ def main():
         if outputs.ndim<2: outputs = outputs.reshape(-1,1)
         prediction = model(inputs, ei, pos)
         local_error = model.acc_fn(prediction, outputs)
-        global_error = comm.allreduce(local_error)
+        global_avg_error = comm.allreduce(local_error) / size
         comm.Barrier()
-        if rank==0: logger.info(f'\tPerformed inference with global error: {global_error:>4e}')
+        if rank==0: logger.info(f'\tPerformed inference with global error: {global_avg_error:>4e}')
 
         # Debug
-        print(istep_w,'simulation rank ',rank,' : ',torch.sum(model(torch.ones((problem_def['n_nodes'],problem_def['n_features']),dtype=dtype,device=args.inference_device),ei,pos)),flush=True)
+        #print(istep_w,'simulation rank ',rank,' : ',torch.sum(model(torch.ones((problem_def['n_nodes'],problem_def['n_features']),dtype=dtype,device=args.inference_device),ei,pos)),flush=True)
 
         # Print workflow step time
         time_w = perf_counter() - tic_w

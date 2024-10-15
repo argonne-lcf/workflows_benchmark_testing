@@ -243,7 +243,7 @@ def main():
         #    torch.jit.save(jit_model, buffer)
 
         # Debug
-        print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
+        #print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
 
         # Send model checkpoint
         with Stream(aio, 'model', 'w', comm) as stream:
@@ -253,11 +253,11 @@ def main():
                 for name, param in model.module.named_parameters():
                     param_np = param.detach().cpu().numpy()
                     arr_size = param_np.size
-                    stream.write(name, param_np, [size*arr_size], [rank*arr_size], [arr_size])
+                    stream.write(name, param_np, [arr_size], [0], [arr_size])
                     stream.write_attribute(name+'/shape',param_np.shape)
             stream.end_step()
         comm.Barrier()
-        if rank==0: logger.info('\tSent model')
+        if rank==0: logger.info('\tSent model weights')
 
     # Finalize MPI
     dist.destroy_process_group()
