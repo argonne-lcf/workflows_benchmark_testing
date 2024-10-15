@@ -192,6 +192,12 @@ def main():
     # Initialize optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate*size)
 
+    # Randomize the ML-Sim rank pair
+    rng = np.random.default_rng(seed=42)
+    rank_ary = np.arange(size)
+    rng.shuffle(rank_ary)
+    sim_rank = rank_ary[rank]
+
     # Loop over workflow steps
     if rank==0: logger.info('\nStarting loop over workflow steps')
     train_data_list = []
@@ -204,7 +210,7 @@ def main():
             arr = stream.inquire_variable('train_data')
             shape = arr.shape()
             count = int(shape[0] / size)
-            start = count * rank
+            start = count * sim_rank
             if rank == size - 1:
                 count += shape[0] % size
             train_data_list.append(torch.from_numpy(stream.read('train_data', [start], [count]).reshape((n_nodes,n_features+n_targets))).type(dtype))
