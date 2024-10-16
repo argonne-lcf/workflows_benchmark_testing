@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import time
 
@@ -19,11 +20,11 @@ def launch_task(task,assigned_nodes):
         hosts_str += node
 
     os.makedirs(run_dir, exist_ok=True)
-    cmd = f"cd {run_dir} & mpiexec -n {nranks} --ppn {ppn} --hosts {hosts_str} {mpi_options} {cmd} >> {run_dir}/job.out"
+    cmd = f"SECONDS=0 & cd {run_dir} & mpiexec -n {nranks} --ppn {ppn} --hosts {hosts_str} {mpi_options} {cmd} >> {run_dir}/job.out & echo $SECONDS"
     p = subprocess.Popen(cmd, shell=True)
-
-    return p
     
+    return p
+start_time = time.perf_counter()
 ntasks = 10
 NX = 400
 gpu_affinity = "/soft/tools/mpi_wrapper_utils/gpu_tile_compact.sh"
@@ -36,6 +37,7 @@ NDEPTH = 8
 NTHREADS = 1
 mpi_options = f"--depth={NDEPTH} --cpu-bind depth --env OMP_NUM_THREADS={NTHREADS} --env OMP_PROC_BIND=spread --env OMP_PLACES=cores"
 
+print(f'Launching node is {socket.gethostname()}')
 
 # Make simple task list
 tasks = {}
@@ -45,7 +47,7 @@ for i in range(ntasks):
                       'num_nodes': num_nodes,
                       'ranks_per_node': ranks_per_node,
                       'mpi_options': mpi_options,
-                      'run_dir': os.getcwd()+f"outputs/{i}"
+                      'run_dir': os.getcwd()+f"outputs/{i}",
                       'status': 'ready'}
 
 # Get available nodes
@@ -60,6 +62,8 @@ ready_tasks_id = list(tasks.keys())
 running_tasks_id = []
 num_unfinished_tasks = len(ready_tasks_id)
 launched_procs = {}
+poll_interval = 1
+total_poll_time = 0
 while num_unfinished_tasks > 0:
 
     # Launch ready tasks
@@ -69,6 +73,7 @@ while num_unfinished_tasks > 0:
             assigned_nodes = free_node_list[0:tasks[tid]["num_nodes"]]
             print(f"Launching task {tid}")
             p = launch_task(tasks[tid],assigned_nodes=assigned_nodes)
+            tasks[tid]['start_time'] = time.perf_counter()
             tasks[tid]['status'] = "running"
             ready_tasks_id.remove(tid)
             running_tasks_id.append(tid)
@@ -82,10 +87,12 @@ while num_unfinished_tasks > 0:
         popen_proc = launched_procs[tid]["process"]
         if popen_proc.poll() is not None:
             print(f"Task {tid} returned")
+            tasks[tid]["end_time"] = time.perf_counter()
             if popen_proc.returncode == 0:
                 tasks[tid]["status"] = "finished"
             else:
                 tasks[tid]["status"] = "failed"
+            print(f"{popen_proc.stdout=}")
             running_tasks_id.remove(tid)
             assigned_nodes = launched_procs[tid]["assigned_nodes"]
             for node in assigned_nodes:
@@ -94,8 +101,11 @@ while num_unfinished_tasks > 0:
     print(f"Nodes occupied {total_job_nodes - len(free_node_list)}/{total_job_nodes}")
     print(f"Tasks ready: {len(ready_tasks_id)}")
     print(f"Tasks running: {len(running_tasks_id)}")
-    time.sleep(1)
+    time.sleep(poll_interval)
+    total_poll_time += poll_interval
 print(tasks)
-    
+end_time = time.perf_counter()
+fom = end_time - start_time - total_poll_time
+print(f"{fom=}")
     
             
