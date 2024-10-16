@@ -47,7 +47,7 @@ for i in range(ntasks):
                       'num_nodes': num_nodes,
                       'ranks_per_node': ranks_per_node,
                       'mpi_options': mpi_options,
-                      'run_dir': os.getcwd()+f"outputs/{i}",
+                      'run_dir': os.getcwd()+f"/outputs/{i}",
                       'status': 'ready'}
 
 # Get available nodes
