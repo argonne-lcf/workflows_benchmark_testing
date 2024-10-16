@@ -116,6 +116,11 @@ def main():
     step = 0
     timers = {
         'workflow': [],
+        'simulation': [],
+        'simulation_step': [],
+        'inference': [],
+        'data_send': [],
+        'model_receive': []
     }
     if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
@@ -123,20 +128,28 @@ def main():
         if rank==0: logger.info(f'Step {istep_w}')
         
          # Imitating simulation steps
+        tic_s = perf_counter()
         for istep_s in range(args.simulation_steps):
+            tic_s_s = perf_counter()
             train_data = simulation_step(step, args.problem_size, problem_def['coords'])
+            timers['simulation_step'].append(perf_counter() - tic_s_s)
             step+=1
+        comm.Barrier()
+        timers['simulation'].append(perf_counter() - tic_s)
 
         # Send training data
+        tic_d = perf_counter()
         with Stream(io, 'train_data', 'w', comm) as stream:
             stream.begin_step()
             arr_size = train_data.size
             stream.write('train_data', train_data, [size*arr_size], [rank*arr_size], [arr_size])
             stream.end_step()
+        timers['data_send'].append(perf_counter() - tic_d)
         comm.Barrier()
         if rank==0: logger.info('\tSent training data')
 
         # Read model checkpoint
+        tic_m = perf_counter()
         with Stream(io, 'model', 'r', comm) as stream:
             stream.begin_step()
             for name, param in model.named_parameters():
@@ -147,10 +160,12 @@ def main():
                 with torch.no_grad():
                     param.data = weights.to(args.inference_device)
             stream.end_step()
+        timers['model_receive'].append(perf_counter() - tic_m)
         comm.Barrier()
         if rank==0: logger.info('\tRead model checkpoint')
 
         # Perform inference
+        tic_i = perf_counter()
         model.eval()
         if istep_w==0:
             pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
@@ -164,6 +179,7 @@ def main():
             local_error = model.acc_fn(prediction, outputs)
         global_avg_error = comm.allreduce(local_error) / size
         comm.Barrier()
+        timers['inference'].append(perf_counter() - tic_i)
         if rank==0: logger.info(f'\tPerformed inference with global error: {global_avg_error:>4e}')
 
         # Debug
@@ -171,27 +187,43 @@ def main():
 
         # Print workflow step time
         time_w = perf_counter() - tic_w
-        if rank==0: logger.info(f'\tWorkflow step time [sec]: {time_w:>4e}')
         timers['workflow'].append(time_w)
+        if rank==0: logger.info(f'\tWorkflow step time [sec]: {time_w:>4e}')
 
     # Average time data across steps
+    timers_avg = {}
     if rank==0:
         logger.info(f'\nMetrics averaged across workflow steps:')
         for key, val in timers.items():
             if len(val)>2: val.pop(0)
             avg = sum(val)/len(val)
+            timers_avg[key] = avg
             logger.info(f'{key} [sec]: {avg:>4e}')
         
     # Print FOM
     if rank==0:
         logger.info(f'\nFOM:')
-        fom_problem = size * problem_def['n_nodes'] * (problem_def['n_features'] * 2)
-        fom_time = sum(timers['workflow'])/len(timers['workflow'])
+        # FOM 1
+        problem_size = size * problem_def['n_nodes'] * problem_def['n_features'] / 1.0e6
+        fom_problem = problem_size
+        fom_time = timers_avg['workflow']
         aurora_workflow_steps = args.workflow_steps
         fom_steps = 1 + 0.1 * (args.workflow_steps - aurora_workflow_steps) / aurora_workflow_steps
         fom_1 = fom_problem * fom_steps / fom_time
-        logger.info(f'FOM 1: {fom_1:>4e}')
-         
+        logger.info(f'Global workflow FOM: {fom_1:>4e}')
+
+        # FOM 2
+        n_bytes = train_data.itemsize
+        problem_size_bytes = size * problem_def['n_nodes'] * problem_def['n_features'] * 2 * n_bytes
+        problem_size_GB = problem_size_bytes / 1024**3
+        fom_simulation = problem_size / timers_avg['simulation_step']
+        fom_data_send = problem_size_GB  / timers_avg['data_send']
+        fom_inference = problem_size / timers_avg['inference']
+        logger.info(f'Simulation FOM: {fom_simulation:>4e}')
+        logger.info(f'Training Data Send FOM:  {fom_data_send:>4e}')
+        logger.info(f'Training FOM: 0')
+        logger.info(f'Model Receive FOM:  0')
+        logger.info(f'Inference FOM: {fom_inference:>4e}')
 
     # Finalize MPI
     mh.close()

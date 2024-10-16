@@ -2,7 +2,7 @@ import os
 import io
 import socket
 import numpy as np
-from time import sleep
+from time import perf_counter
 import logging
 from argparse import ArgumentParser
 from datetime import datetime, timedelta
@@ -199,12 +199,19 @@ def main():
     sim_rank = rank_ary[rank]
 
     # Loop over workflow steps
-    if rank==0: logger.info('\nStarting loop over workflow steps')
+    timers = {
+        'training': [],
+        'training_iter': [],
+        'data_receive': [],
+        'model_send': []
+    }
     train_data_list = []
+    if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
         if rank==0: logger.info(f'Step {istep_w}')
 
         # Read training data
+        tic_d = perf_counter()
         with Stream(aio, "train_data", "r", comm) as stream:
             stream.begin_step()    
             arr = stream.inquire_variable('train_data')
@@ -215,6 +222,7 @@ def main():
                 count += shape[0] % size
             train_data_list.append(torch.from_numpy(stream.read('train_data', [start], [count]).reshape((n_nodes,n_features+n_targets))).type(dtype))
             stream.end_step()
+        timers['data_receive'].append(perf_counter() - tic_d)
         comm.Barrier()
         if rank==0: logger.info('\tRead training data')
 
@@ -224,8 +232,10 @@ def main():
         # Train for a set number of iterations
         model.train()
         n_iters = 0
+        tic_t = perf_counter()
         while n_iters < args.training_iters:
             for batch_idx, batch in enumerate(data_loader):
+                tic_t_i = perf_counter()
                 if (device.type != 'cpu'):
                     batch = batch.to(device, non_blocking=True)
 
@@ -236,13 +246,16 @@ def main():
             
                 dist.all_reduce(loss, op=dist.ReduceOp.AVG)
                 if rank==0: logger.info(f'\tIter {n_iters}: avg_loss = {loss:>4e}')
+                # may need a syc call here
+                timers['training_iter'].append(perf_counter() - tic_t_i)
             
                 n_iters+=1
                 if n_iters == args.training_iters: break
+        timers['training'].append(perf_counter() - tic_t)
 
 
         # Save model checkpoint
-        model.eval()
+        #model.eval()
         #if rank==0:
         #    jit_model = model.module.script_model()
         #    buffer = io.BytesIO()
@@ -252,6 +265,7 @@ def main():
         #print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
 
         # Send model checkpoint
+        tic_m = perf_counter()
         with Stream(aio, 'model', 'w', comm) as stream:
             stream.begin_step()
             if rank == 0:
@@ -262,8 +276,19 @@ def main():
                     stream.write(name, param_np, [arr_size], [0], [arr_size])
                     stream.write_attribute(name+'/shape',param_np.shape)
             stream.end_step()
+        timers['model_send'].append(perf_counter() - tic_m)
         comm.Barrier()
         if rank==0: logger.info('\tSent model weights')
+
+    # Average time data across steps
+    timers_avg = {}
+    if rank==0:
+        logger.info(f'\nMetrics averaged across workflow steps:')
+        for key, val in timers.items():
+            if len(val)>2: val.pop(0)
+            avg = sum(val)/len(val)
+            timers_avg[key] = avg
+            logger.info(f'{key} [sec]: {avg:>4e}')
 
     # Finalize MPI
     dist.destroy_process_group()

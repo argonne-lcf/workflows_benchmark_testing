@@ -24,7 +24,7 @@ def setup_problem(args, comm):
     }
 
     if args.problem_size=="small":
-        N = 2_000 // size
+        N = 32 #2_000 // size
         problem_def['n_nodes'] = N**2
         problem_def['n_features'] = 1
         problem_def['n_targets'] = 1
@@ -39,7 +39,7 @@ def setup_problem(args, comm):
         problem_def['coords'][:,0] = X.flatten()
         problem_def['coords'][:,1] = Y.flatten()
     if args.problem_size=="medium":
-        N = 1_000_000 // size
+        N = 256 #1_000_000 // size
         problem_def['n_nodes'] = N**2
         problem_def['n_features'] = 2
         problem_def['n_targets'] = 2
@@ -54,7 +54,7 @@ def setup_problem(args, comm):
         problem_def['coords'][:,0] = X.flatten()
         problem_def['coords'][:,1] = Y.flatten()
     if args.problem_size=="large":
-        N = 100_000_000 // size
+        N = 100 #100_000_000 // size
         problem_def['n_nodes'] = N**3
         problem_def['n_features'] = 3
         problem_def['n_targets'] = 3
