@@ -206,6 +206,7 @@ def main():
         'model_send': []
     }
     train_data_list = []
+    train_iter = 0
     if rank==0: logger.info('\nStarting loop over workflow steps')
     for istep_w in range(args.workflow_steps):
         if rank==0: logger.info(f'Step {istep_w}')
@@ -245,10 +246,11 @@ def main():
                 optimizer.step()
             
                 dist.all_reduce(loss, op=dist.ReduceOp.AVG)
-                if rank==0: logger.info(f'\tIter {n_iters}: avg_loss = {loss:>4e}')
+                if rank==0: logger.info(f'\tIter {train_iter}: avg_loss = {loss:>4e}')
                 # may need a syc call here
                 timers['training_iter'].append(perf_counter() - tic_t_i)
-            
+
+                train_iter+=1
                 n_iters+=1
                 if n_iters == args.training_iters: break
         timers['training'].append(perf_counter() - tic_t)

@@ -99,7 +99,7 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data = np.empty((n_samples,2))
         data[:,0] = u.flatten()
         data[:,1] = udt.flatten()
-        sleep(0.5)
+        sleep(0.1)
     if problem_size=='medium':
         r = np.sqrt(coords[:,0]**2 + coords[:,1]**2)
         period = 100
@@ -113,7 +113,7 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data[:,1] = v.flatten()
         data[:,2] = udt.flatten()
         data[:,3] = vdt.flatten()
-        sleep(1.0)
+        sleep(0.3)
     if problem_size=='large':
         r = np.sqrt(coords[:,0]**2 + coords[:,1]**2 + coords[:,2]**2)
         period = 200
@@ -131,7 +131,7 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data[:,3] = udt.flatten()
         data[:,4] = vdt.flatten()
         data[:,5] = wdt.flatten()
-        sleep(1.5)
+        sleep(0.5)
 
     return data
 

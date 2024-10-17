@@ -31,7 +31,7 @@ def main():
 
     # Parse arguments
     parser = ArgumentParser(description='SimAI-Bench Simulation')
-    parser.add_argument('--problem_size', default='small', type=str, choices=['small'], help='Size of science problem to set up')
+    parser.add_argument('--problem_size', default='small', type=str, choices=['small','medium','large'], help='Size of science problem to set up')
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--simulation_steps', type=int, default=5, help='Number of simulation steps to execute between training data transfers')
@@ -133,6 +133,7 @@ def main():
             tic_s_s = perf_counter()
             train_data = simulation_step(step, args.problem_size, problem_def['coords'])
             timers['simulation_step'].append(perf_counter() - tic_s_s)
+            if rank==0: logger.info(f'\tTime step {step}')
             step+=1
         comm.Barrier()
         timers['simulation'].append(perf_counter() - tic_s)
@@ -170,7 +171,7 @@ def main():
         if istep_w==0:
             pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
             ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(args.inference_device)
-        inputs = torch.from_numpy(train_data[:,problem_def['n_features']]).type(dtype).to(args.inference_device)
+        inputs = torch.from_numpy(train_data[:,:problem_def['n_features']]).type(dtype).to(args.inference_device)
         if inputs.ndim<2: inputs = inputs.reshape(-1,1)
         outputs = torch.from_numpy(train_data[:,problem_def['n_features']:]).type(dtype).to(args.inference_device)
         if outputs.ndim<2: outputs = outputs.reshape(-1,1)
@@ -188,6 +189,7 @@ def main():
         # Print workflow step time
         time_w = perf_counter() - tic_w
         timers['workflow'].append(time_w)
+        comm.Barrier()
         if rank==0: logger.info(f'\tWorkflow step time [sec]: {time_w:>4e}')
 
     # Average time data across steps
