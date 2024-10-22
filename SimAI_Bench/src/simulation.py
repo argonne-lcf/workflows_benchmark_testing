@@ -223,8 +223,6 @@ def main():
         fom_inference = problem_size / timers_avg['inference']
         logger.info(f'Simulation FOM: {fom_simulation:>4e}')
         logger.info(f'Training Data Send FOM:  {fom_data_send:>4e}')
-        logger.info(f'Training FOM: 0')
-        logger.info(f'Model Receive FOM:  0')
         logger.info(f'Inference FOM: {fom_inference:>4e}')
 
     # Finalize MPI
