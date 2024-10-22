@@ -136,3 +136,107 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
     return data
 
 
+# GMRES
+def GMRES(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None):
+    """Solve the linear system Ax=b via Generalized Minimal RESidual
+    
+    Implemented in PyTorch
+
+    Reference:
+        M. Wang, H. Klie, M. Parashar and H. Sudan, "Solving Sparse Linear
+        Systems on NVIDIA Tesla GPUs", ICCS 2009 (2009).
+
+    .. seealso:: https://github.com/cupy/cupy/blob/v13.3.0/cupyx/scipy/sparse/linalg/_iterative.py
+    """
+    n = A.shape[0]
+    dtype = A.dtype
+    np_dtype = torch.zeros((1,),dtype=dtype).numpy().dtype
+    device = A.device
+    
+    if n == 0:
+        return torch.zeros_like(b)
+    
+    b_norm = torch.linalg.norm(b)
+    if b_norm == 0:
+        return b
+    
+    if restart is None:
+        restart = max_iter
+    restart = min(restart, min(n, max_iter))
+
+    A, P, x, b = make_system(A, P, x0, b)
+
+    Q = torch.empty((n, restart), dtype=dtype, device=device)
+    H = torch.zeros((restart+1, restart), dtype=dtype, device=device)
+    e = numpy.zeros((restart+1,), dtype=np_dtype)
+
+    compute_hu = _make_compute_hu(V)
+
+    iters = 0
+    while True:
+        r = b - torch.matmul(A,x)
+        r_norm = torch.linalg.norm(r)
+        if r_norm <= tol or iters >= max_iter:
+            break
+        r = r / r_norm
+        Q[:, 0] = r
+        e[0] = r_norm
+
+        # Arnoldi iteration
+        for j in range(restart):
+            Q[:,j+1] = torch.matmul(A,Q[:,j])
+            for i in range(j):
+                H[i,j] = torch.dot(Q[:,i],Q[:,j+1])
+                Q[:,j+1] = Q[:,j+1] - H[i,j]*Q[:,i]
+            H[j+1,j] = torch.linalg.norm(Q[:,j+1])
+            if torch.abs(H[j+1,j])>tol:
+                Q[:,j+1] = Q[:,j+1] / H[j+1,j]
+            
+
+
+u = matvec(z)
+            H[:j+1, j], u = compute_hu(u, j)
+            cublas.nrm2(u, out=H[j+1, j])
+            if j+1 < restart:
+                v = u / H[j+1, j]
+                V[:, j+1] = v
+
+        # Note: The least-square solution to equation Hy = e is computed on CPU
+        # because it is faster if the matrix size is small.
+        ret = numpy.linalg.lstsq(cupy.asnumpy(H), e)
+        y = cupy.array(ret[0])
+        x += V @ y
+        iters += restart
+
+    info = 0
+    if iters == maxiter and not (r_norm <= atol):
+        info = iters
+    return mx
+
+
+# Make system of equations
+def make_system(A, P, x0, b):
+    """Make linear system of equations
+    """
+    n = A.shape[0]
+    dtype = A.dtype
+    device = A.device
+    if x0 is None:
+        x = torch.zeros((n,), dtype=dtype, device=device)
+    else:
+        if not (x0.shape == (n,) or x0.shape == (n, 1)):
+            raise ValueError('x0 has incompatible dimensions')
+        x = x0
+        if x.dtype != dtype: x = x.type(dtype)
+        if x.device != device: x.to(device)
+    if P is None:
+        P = torch.eye(n, dtype=dtype, device=device)
+    else:
+        if A.shape != P.shape:
+            raise ValueError('matrix and preconditioner have different shapes')
+        if P.dtype != dtype: P = P.type(dtype)
+        if P.device != device: P.to(device)
+    return A, P, x, b
+
+
+
