@@ -1,3 +1,4 @@
+import sys
 from time import sleep
 import numpy as np
 import math
@@ -5,6 +6,9 @@ from mpipartition import Partition
 
 import torch
 from torch_geometric.nn import knn_graph
+
+from scipy import sparse
+from scipy.sparse import linalg as spla
 
 PI = math.pi
 
@@ -137,16 +141,16 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
 
 
 # GMRES
-def GMRES(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None):
+def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=100, restart=None):
     """Solve the linear system Ax=b via Generalized Minimal RESidual
     
     Implemented in PyTorch
 
-    Reference:
-        M. Wang, H. Klie, M. Parashar and H. Sudan, "Solving Sparse Linear
-        Systems on NVIDIA Tesla GPUs", ICCS 2009 (2009).
-
-    .. seealso:: https://github.com/cupy/cupy/blob/v13.3.0/cupyx/scipy/sparse/linalg/_iterative.py
+    #Reference:
+    #    M. Wang, H. Klie, M. Parashar and H. Sudan, "Solving Sparse Linear
+    #    Systems on NVIDIA Tesla GPUs", ICCS 2009 (2009).
+    #
+    #.. seealso:: https://github.com/cupy/cupy/blob/v13.3.0/cupyx/scipy/sparse/linalg/_iterative.py
     """
     n = A.shape[0]
     dtype = A.dtype
@@ -154,64 +158,50 @@ def GMRES(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None):
     device = A.device
     
     if n == 0:
-        return torch.zeros_like(b)
+        return torch.zeros_like(b), 0, 0
     
     b_norm = torch.linalg.norm(b)
     if b_norm == 0:
-        return b
+        return b, b_borm, 0
     
     if restart is None:
-        restart = max_iter
-    restart = min(restart, min(n, max_iter))
+        n_krylov = max_iter
+    else:
+        n_krylov = min(restart, max_iter)
+    assert n_krylov>=2, 'Number of max_iter or restart must be >= 2'
 
-    A, P, x, b = make_system(A, P, x0, b)
+    A, x0, b = make_system(A, P, x0, b)
 
-    Q = torch.empty((n, restart), dtype=dtype, device=device)
-    H = torch.zeros((restart+1, restart), dtype=dtype, device=device)
-    e = numpy.zeros((restart+1,), dtype=np_dtype)
+    Q = torch.empty((n, n_krylov+1), dtype=dtype, device=device)
+    H = torch.zeros((n_krylov+1, n_krylov), dtype=dtype, device=device)
+    e = torch.zeros((n_krylov+1,), dtype=dtype, device=device)
 
-    compute_hu = _make_compute_hu(V)
-
+    res0 = b - torch.matmul(A,x0)
+    res0_norm = torch.linalg.norm(res0)
+    if res0_norm <= tol:
+        return x, res0_norm, 0
+    
+    Q[:, 0] = res0 / res0_norm
+    e[0] = res0_norm
     iters = 0
-    while True:
-        r = b - torch.matmul(A,x)
-        r_norm = torch.linalg.norm(r)
-        if r_norm <= tol or iters >= max_iter:
+    for j in range(n_krylov):
+        Q[:,j+1] = torch.matmul(A, Q[:,j])
+        for i in range(j):
+            H[i,j] = torch.dot(Q[:,i],Q[:,j+1])
+            Q[:,j+1] = Q[:,j+1] - H[i,j]*Q[:,i]
+        H[j+1,j] = torch.linalg.norm(Q[:,j+1])
+        if torch.abs(H[j+1,j])>tol:
+            Q[:,j+1] = Q[:,j+1] / H[j+1,j]
+        y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+        res = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
+        print(res.item())
+        #y = torch.linalg.lstsq(H, res0_norm*e).solution
+        #res = torch.linalg.norm(torch.matmul(H,y) - res0_norm*e)
+        iters+=1
+        if res <= tol:
             break
-        r = r / r_norm
-        Q[:, 0] = r
-        e[0] = r_norm
 
-        # Arnoldi iteration
-        for j in range(restart):
-            Q[:,j+1] = torch.matmul(A,Q[:,j])
-            for i in range(j):
-                H[i,j] = torch.dot(Q[:,i],Q[:,j+1])
-                Q[:,j+1] = Q[:,j+1] - H[i,j]*Q[:,i]
-            H[j+1,j] = torch.linalg.norm(Q[:,j+1])
-            if torch.abs(H[j+1,j])>tol:
-                Q[:,j+1] = Q[:,j+1] / H[j+1,j]
-            
-
-
-u = matvec(z)
-            H[:j+1, j], u = compute_hu(u, j)
-            cublas.nrm2(u, out=H[j+1, j])
-            if j+1 < restart:
-                v = u / H[j+1, j]
-                V[:, j+1] = v
-
-        # Note: The least-square solution to equation Hy = e is computed on CPU
-        # because it is faster if the matrix size is small.
-        ret = numpy.linalg.lstsq(cupy.asnumpy(H), e)
-        y = cupy.array(ret[0])
-        x += V @ y
-        iters += restart
-
-    info = 0
-    if iters == maxiter and not (r_norm <= atol):
-        info = iters
-    return mx
+    return torch.matmul(Q[:,:j+1], y) + x0, res, iters
 
 
 # Make system of equations
@@ -224,8 +214,8 @@ def make_system(A, P, x0, b):
     if x0 is None:
         x = torch.zeros((n,), dtype=dtype, device=device)
     else:
-        if not (x0.shape == (n,) or x0.shape == (n, 1)):
-            raise ValueError('x0 has incompatible dimensions')
+        if not x0.shape == (n,):
+            raise ValueError('x0 has incompatible dimensions, must be 1D vector of length n')
         x = x0
         if x.dtype != dtype: x = x.type(dtype)
         if x.device != device: x.to(device)
@@ -236,7 +226,36 @@ def make_system(A, P, x0, b):
             raise ValueError('matrix and preconditioner have different shapes')
         if P.dtype != dtype: P = P.type(dtype)
         if P.device != device: P.to(device)
-    return A, P, x, b
+    return A, x, b
 
 
+# Check GMRES implementation
+def check_gmres(N=10):
+    """Compare GMRES implementation to known solution or to scipy solution
+    """
+    #A = np.array([[1,0,0],[0,2,0],[0,0,3]]).astype(np.float64)
+    #b = np.array([1, 4, 6]).astype(np.float64)
+    A = np.random.rand(N, N).astype(np.float64)
+    b = np.random.rand(N).astype(np.float64)
+    x, res, iters = gmres(torch.from_numpy(A), torch.from_numpy(b), tol=1e-5)
+    print(x)
+    print(f'Native GMRES completed with {iters} iters and residual {res.item()}')
+    x_sp, info = spla.gmres(A, b, rtol=1e-5)
+    if info == 0:
+        print('Scipy GMRES converged successfully')
+    else:
+        print('Scipy GMRES completed in {info} iters')
+    all_close = np.allclose(x.cpu().numpy(), x_sp)
+    if all_close:
+        print('Success')
+    else:
+        print('Native and scipy GMRES differ')
+
+
+if __name__=='__main__':
+    if len(sys.argv) > 1:
+        N = int(sys.argv[1])
+        check_gmres(N)
+    else:
+        check_gmres()
 
