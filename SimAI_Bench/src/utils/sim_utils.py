@@ -156,7 +156,7 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
     dtype = A.dtype
     np_dtype = torch.zeros((1,),dtype=dtype).numpy().dtype
     device = A.device
-    if logging: print(f'Executing GMRES with precision {dtype} and on device {device}',flush=True)   
+    if logging: print(f'Executing GMRES with precision {dtype} on device {device}',flush=True)   
  
     if n == 0:
         return torch.zeros_like(b), 0, 0
@@ -200,14 +200,12 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
             H[j+1,j] = torch.linalg.norm(u)
             q = u / H[j+1,j]
             Q[:,j+1] = q
-            iters+=1
+            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution # cupy code suggests doing this on cpu
+            res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
             if logging:
-                y = torch.linalg.lstsq(H, e).solution
-                res_norm = torch.linalg.norm(torch.matmul(H,y) - e)
                 print(f'iter {iters}\tres = {res_norm.item()}',flush=True)
+            iters+=1
         
-        y = torch.linalg.lstsq(H, e).solution
-        res_norm = torch.linalg.norm(torch.matmul(H,y) - e)
         x += torch.matmul(Q[:,:j+1],y)
 
 
@@ -282,6 +280,8 @@ class scipy_gmres_callback(object):
 def check_gmres(N=10, device='cpu'):
     """Compare GMRES implementation to known solution or to scipy solution
     """
+    logging = False
+    max_iter = 200
     torch_device = torch.device(device)
     A = np.random.rand(N, N).astype(np.float64)
     b = np.random.rand(N).astype(np.float64)
@@ -292,15 +292,17 @@ def check_gmres(N=10, device='cpu'):
                           torch.from_numpy(A).to(torch_device),
                           torch.from_numpy(b).to(torch_device),
                           tol=1e-6,
-                          logging=True
+                          restart=None,
+                          max_iter=max_iter,
+                          logging=logging
     )
     rtime = perf_counter() - rtime
     print(f'Native GMRES completed in {rtime} sec with {iters} iters and residual {res.item()}')
     
     # Scipy
-    callback = scipy_gmres_callback()
+    callback = scipy_gmres_callback() if logging else None
     rtime = perf_counter()
-    x_sp, info = spla.gmres(A, b, restart=100, atol=1e-6, callback=callback)
+    x_sp, info = spla.gmres(A, b, restart=min(max_iter,b.size), maxiter=max_iter, atol=1e-6, callback=callback)
     rtime = perf_counter() - rtime
     if info == 0:
         print(f'Scipy GMRES converged successfully in {rtime} sec')
