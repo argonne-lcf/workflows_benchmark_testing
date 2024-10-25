@@ -22,6 +22,7 @@ def setup_problem(args, comm):
     rank = comm.Get_rank()
     size = comm.Get_size()
     problem_def = {'n_nodes': 1,
+                   'n_nodes_gmres': 1,
                    'n_edges': 1,
                    'n_features': 1,
                    'n_targets': 1,
@@ -33,6 +34,7 @@ def setup_problem(args, comm):
     if args.problem_size=="small":
         N = 32 #2_000 // size
         problem_def['n_nodes'] = N**2
+        problem_def['n_nodes_gmres'] = 512
         problem_def['n_features'] = 1
         problem_def['n_targets'] = 1
         problem_def['spatial_dim'] = 2
@@ -48,6 +50,7 @@ def setup_problem(args, comm):
     if args.problem_size=="medium":
         N = 256 #1_000_000 // size
         problem_def['n_nodes'] = N**2
+        problem_def['n_nodes_gmres'] = 4096
         problem_def['n_features'] = 2
         problem_def['n_targets'] = 2
         problem_def['spatial_dim'] = 2
@@ -63,6 +66,7 @@ def setup_problem(args, comm):
     if args.problem_size=="large":
         N = 100 #100_000_000 // size
         problem_def['n_nodes'] = N**3
+        problem_def['n_nodes_gmres'] = 32768
         problem_def['n_features'] = 3
         problem_def['n_targets'] = 3
         problem_def['spatial_dim'] = 3
@@ -92,8 +96,8 @@ def setup_graph(coords: np.ndarray) -> np.ndarray:
     return knn_graph(torch.from_numpy(coords), k=2, loop=False).numpy().astype('int64')
 
 
-# Perform a step of the simulation
-def simulation_step(step: int, problem_size: str, coords: np.ndarray):
+# Generate training data
+def generate_training_data(step: int, problem_size: str, coords: np.ndarray):
     """Perform a step of the simulation
     """
     n_samples = coords.shape[0]
@@ -106,7 +110,6 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data = np.empty((n_samples,2))
         data[:,0] = u.flatten()
         data[:,1] = udt.flatten()
-        sleep(0.1)
     if problem_size=='medium':
         r = np.sqrt(coords[:,0]**2 + coords[:,1]**2)
         period = 100
@@ -120,7 +123,6 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data[:,1] = v.flatten()
         data[:,2] = udt.flatten()
         data[:,3] = vdt.flatten()
-        sleep(0.3)
     if problem_size=='large':
         r = np.sqrt(coords[:,0]**2 + coords[:,1]**2 + coords[:,2]**2)
         period = 200
@@ -138,14 +140,28 @@ def simulation_step(step: int, problem_size: str, coords: np.ndarray):
         data[:,3] = udt.flatten()
         data[:,4] = vdt.flatten()
         data[:,5] = wdt.flatten()
-        sleep(0.5)
-
     return data
+
+
+# Perform a simulation step
+def simulation_step(N: int, device: str):
+    """Perform a step of the simulation, which invilved GMRES solves
+    """
+    torch_device = torch.device(device)
+    max_iter = 200
+    restart = 50
+    A = torch.randn(N, N, device=torch_device, dtype=torch.float64)
+    b = torch.randn(N, device=torch_device, dtype=torch.float64)
+    gmres(A, b, 
+          tol=1e-7,
+          max_iter=N,
+          restart=min(N,restart)
+    )
 
 
 # GMRES
 def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=False):
-    """Solve the linear system Ax=b via Generalized Minimal RESidual
+    """Solve the linear system Ax=b via Generalized Minimal RESidual (GMRES)
     
     Implemented in PyTorch
 
@@ -176,7 +192,7 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
 
     A, P, x, b = make_system(A, P, x0, b)
 
-    # consider switching rows and columns of Q and H for performance
+    # TODO: consider switching rows and columns of Q and H for performance
     Q = torch.empty((n, n_krylov+1), dtype=dtype, device=device)
     H = torch.zeros((n_krylov+1, n_krylov), dtype=dtype, device=device)
     e = torch.zeros((n_krylov+1,), dtype=dtype, device=device)
@@ -203,22 +219,22 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
             H[j+1,j] = torch.linalg.norm(u)
             q = u / H[j+1,j]
             Q[:,j+1] = q
-            # LST on device every iter
-            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
-            res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
             if logging:
+                # LSTSQ on device every iter
+                y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+                res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
                 print(f'iter {iters}\tres = {res_norm.item()}',flush=True)
             iters+=1
 
-        # LST on device
-        #y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
-        #res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
+        if not logging:
+            # LSTSQ on device
+            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+            res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
         
-        # LST on CPU and no res norm (like cupy)
-        #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution
-        #y = y.to(device)
+            # LSTSQ on CPU and no res norm (like cupy)
+            #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
         
-        x += torch.matmul(Q[:,:j+1],y)
+            x += torch.matmul(Q[:,:j+1],y)
 
 
     # From https://acme.byu.edu/00000179-aa18-d402-af7f-abf806ac0001/gmres2020-pdf 17.1
@@ -293,7 +309,8 @@ def check_gmres(N=10, device='cpu'):
     """Compare GMRES implementation to known solution or to scipy solution
     """
     logging = False
-    restart = 512
+    restart = 50
+    max_iter = 200
     torch_device = torch.device(device)
     A = np.random.rand(N, N).astype(np.float64)
     b = np.random.rand(N).astype(np.float64)
@@ -305,7 +322,7 @@ def check_gmres(N=10, device='cpu'):
                           torch.from_numpy(b).to(torch_device),
                           tol=1e-6,
                           restart=min(b.size,restart),
-                          max_iter=b.size,
+                          max_iter=max_iter,
                           logging=logging
     )
     rtime = perf_counter() - rtime
@@ -318,7 +335,7 @@ def check_gmres(N=10, device='cpu'):
         x_cmp, info = spla.gmres(
                                  A, b, 
                                  restart=min(b.size,restart), 
-                                 maxiter=b.size, 
+                                 maxiter=max_iter, 
                                  atol=1e-6, 
                                  callback=callback
         )
@@ -335,7 +352,7 @@ def check_gmres(N=10, device='cpu'):
                                  cp.asarray(A), 
                                  cp.asarray(b), 
                                  restart=min(b.size,restart), 
-                                 maxiter=b.size, 
+                                 maxiter=max_iter, 
                                  atol=1e-6
         )
         rtime = perf_counter() - rtime
