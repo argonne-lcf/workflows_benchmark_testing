@@ -10,6 +10,9 @@ from torch_geometric.nn import knn_graph
 from scipy import sparse
 from scipy.sparse import linalg as spla
 
+import cupy as cp
+from cupyx.scipy.sparse import linalg as cula
+
 PI = math.pi
 
 # Setup problem
@@ -146,11 +149,11 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
     
     Implemented in PyTorch
 
-    #Reference:
-    #    M. Wang, H. Klie, M. Parashar and H. Sudan, "Solving Sparse Linear
-    #    Systems on NVIDIA Tesla GPUs", ICCS 2009 (2009).
-    #
-    #.. seealso:: https://github.com/cupy/cupy/blob/v13.3.0/cupyx/scipy/sparse/linalg/_iterative.py
+    Reference:
+        M. Wang, H. Klie, M. Parashar and H. Sudan, "Solving Sparse Linear
+        Systems on NVIDIA Tesla GPUs", ICCS 2009 (2009).
+    
+    .. seealso:: https://github.com/cupy/cupy/blob/v13.3.0/cupyx/scipy/sparse/linalg/_iterative.py
     """
     n = A.shape[0]
     dtype = A.dtype
@@ -200,11 +203,20 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
             H[j+1,j] = torch.linalg.norm(u)
             q = u / H[j+1,j]
             Q[:,j+1] = q
-            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution # cupy code suggests doing this on cpu
+            # LST on device every iter
+            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
             res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
             if logging:
                 print(f'iter {iters}\tres = {res_norm.item()}',flush=True)
             iters+=1
+
+        # LST on device
+        #y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+        #res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
+        
+        # LST on CPU and no res norm (like cupy)
+        #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution
+        #y = y.to(device)
         
         x += torch.matmul(Q[:,:j+1],y)
 
@@ -281,7 +293,7 @@ def check_gmres(N=10, device='cpu'):
     """Compare GMRES implementation to known solution or to scipy solution
     """
     logging = False
-    max_iter = 200
+    restart = 512
     torch_device = torch.device(device)
     A = np.random.rand(N, N).astype(np.float64)
     b = np.random.rand(N).astype(np.float64)
@@ -292,24 +304,48 @@ def check_gmres(N=10, device='cpu'):
                           torch.from_numpy(A).to(torch_device),
                           torch.from_numpy(b).to(torch_device),
                           tol=1e-6,
-                          restart=None,
-                          max_iter=max_iter,
+                          restart=min(b.size,restart),
+                          max_iter=b.size,
                           logging=logging
     )
     rtime = perf_counter() - rtime
     print(f'Native GMRES completed in {rtime} sec with {iters} iters and residual {res.item()}')
     
     # Scipy
-    callback = scipy_gmres_callback() if logging else None
-    rtime = perf_counter()
-    x_sp, info = spla.gmres(A, b, restart=min(max_iter,b.size), maxiter=max_iter, atol=1e-6, callback=callback)
-    rtime = perf_counter() - rtime
-    if info == 0:
-        print(f'Scipy GMRES converged successfully in {rtime} sec')
-    else:
-        print(f'Scipy GMRES completed in {rtime} sec with {info} iters')
+    if device == 'cpu':
+        callback = scipy_gmres_callback() if logging else None
+        rtime = perf_counter()
+        x_cmp, info = spla.gmres(
+                                 A, b, 
+                                 restart=min(b.size,restart), 
+                                 maxiter=b.size, 
+                                 atol=1e-6, 
+                                 callback=callback
+        )
+        rtime = perf_counter() - rtime
+        if info == 0:
+            print(f'Scipy GMRES converged successfully in {rtime} sec')
+        else:
+            print(f'Scipy GMRES completed in {rtime} sec with {info} iters')
     
-    all_close = np.allclose(x.cpu().numpy(), x_sp)
+    # Cupy
+    elif 'cuda' in device:
+        rtime = perf_counter()
+        x_cmp, info = cula.gmres(
+                                 cp.asarray(A), 
+                                 cp.asarray(b), 
+                                 restart=min(b.size,restart), 
+                                 maxiter=b.size, 
+                                 atol=1e-6
+        )
+        rtime = perf_counter() - rtime
+        x_cmp = cp.asnumpy(x_cmp)
+        if info == 0:
+            print(f'Cupy GMRES converged successfully in {rtime} sec')
+        else:
+            print(f'Cupy GMRES completed in {rtime} sec with {info} iters')    
+
+    all_close = np.allclose(x.cpu().numpy(), x_cmp)
     if all_close:
         print('Success')
     else:
