@@ -236,9 +236,12 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
         
             # LSTSQ on CPU and no res norm (like cupy)
             # needed for XPU, torch.linalg.lstsq not implemented for XPU
-            y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
-        
-            x += torch.matmul(Q[:,:j+1],y)
+            #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
+
+            # LSTSQ on CPU with numpy
+            y = torch.from_numpy(np.linalg.lstsq(H[:j+2,:j+1].cpu().numpy(), e[:j+2].cpu().numpy())[0]).to(device)
+ 
+        x += torch.matmul(Q[:,:j+1],y)
 
 
     # From https://acme.byu.edu/00000179-aa18-d402-af7f-abf806ac0001/gmres2020-pdf 17.1
