@@ -9,7 +9,7 @@ module list
 
 # Set env variables
 #export SstVerbose=1
-export MP_PROC_BIND=spread
+export OMP_PROC_BIND=spread
 export OMP_PLACES=threads
 
 # Set up run
@@ -23,6 +23,12 @@ echo Number of simulation ranks per node: $PROCS_PER_NODE
 echo Number of trainer ranks: $PROCS
 echo Number of trainer ranks per node: $PROCS_PER_NODE
 echo
+
+if ls *.sst 1> /dev/null 2>&1
+then 
+    echo Cleaning up old .sst files
+    rm *.sst
+fi
 
 # Workflow parameters
 PROBLEM="medium"
