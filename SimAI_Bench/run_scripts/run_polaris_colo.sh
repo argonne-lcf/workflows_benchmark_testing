@@ -26,18 +26,25 @@ echo Number of trainer ranks per node: $PROCS_PER_NODE
 echo
 
 # Workflow parameters
-PROBLEM="small"
-STEPS=5
+PROBLEM="medium"
+STEPS=2
+SIM_STEPS=10
+TRAIN_STEPS=10
 
 # Run
 echo Running workflow ...
 echo `date`
 mpiexec -n $PROCS --ppn $PROCS_PER_NODE --cpu-bind=list:24:16:8:1 ./affinity_polaris.sh $PROCS_PER_NODE 0 \
     python $EXE_PATH/simulation.py \
-    --ppn $PROCS_PER_NODE --problem_size $PROBLEM --workflow_steps $STEPS &
+    --ppn $PROCS_PER_NODE \
+    --problem_size $PROBLEM \
+    --workflow_steps $STEPS \
+    --simulation_steps $SIM_STEPS &
 mpiexec -n $PROCS --ppn $PROCS_PER_NODE --cpu-bind=list:28:20:12:4 ./affinity_polaris.sh $PROCS_PER_NODE $PROCS_PER_NODE \
     python $EXE_PATH/trainer.py \
-    --ppn $PROCS_PER_NODE --workflow_steps $STEPS
+    --ppn $PROCS_PER_NODE \
+    --workflow_steps $STEPS \
+    --training_iters $TRAIN_STEPS
 wait
 echo `date`
 

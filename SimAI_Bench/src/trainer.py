@@ -292,6 +292,16 @@ def main():
             timers_avg[key] = avg
             logger.info(f'{key} [sec]: {avg:>4e}')
 
+    # Print FOM
+    if rank==0:
+        logger.info(f'\nFOM:')
+        global_nodes = size * n_nodes
+        fom_training = global_nodes / timers_avg['training_iter']
+        model_size_GB = n_params * torch.ones(1,dtype=dtype).element_size() / 1024**3
+        fom_model_send = model_size_GB / timers_avg['model_send']
+        logger.info(f'Training FOM: {fom_training:>4e}')
+        logger.info(f'Model Send FOM: {fom_model_send:>4e}')
+
     # Finalize MPI
     dist.destroy_process_group()
     mh.close()

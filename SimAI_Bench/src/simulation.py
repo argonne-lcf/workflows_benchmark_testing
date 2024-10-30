@@ -14,7 +14,7 @@ from mpi4py import MPI
 import torch
 
 from utils.logger import MPIFileHandler
-from utils.sim_utils import setup_problem, simulation_step
+from utils.sim_utils import setup_problem, simulation_step, generate_training_data
 from gnn.model import GNN
 
 # Main simulation function
@@ -34,10 +34,11 @@ def main():
     parser.add_argument('--problem_size', default='small', type=str, choices=['small','medium','large'], help='Size of science problem to set up')
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
     parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
-    parser.add_argument('--simulation_steps', type=int, default=5, help='Number of simulation steps to execute between training data transfers')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
-    parser.add_argument('--inference_precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for inference')
+    parser.add_argument('--simulation_steps', type=int, default=2, help='Number of simulation steps to execute between training data transfers')
+    parser.add_argument('--simulation_device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run simulation (GMRES) on')
     parser.add_argument('--inference_device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run inference on')
+    parser.add_argument('--inference_precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for inference')
     parser.add_argument('--hidden_channels', type=int, default=16, help='Number of hidden node features in GNN')
     parser.add_argument('--mlp_hidden_layers', type=int, default=2, help='Number of hidden layers for encoder/decoder, edge update, node update layers MLPs')
     parser.add_argument('--message_passing_layers', type=int, default=4, help='Number of GNN message pssing layers')
@@ -131,12 +132,13 @@ def main():
         tic_s = perf_counter()
         for istep_s in range(args.simulation_steps):
             tic_s_s = perf_counter()
-            train_data = simulation_step(step, args.problem_size, problem_def['coords'])
+            simulation_step(problem_def['n_nodes_gmres'], args.simulation_device)
             timers['simulation_step'].append(perf_counter() - tic_s_s)
-            if rank==0: logger.info(f'\tTime step {step}')
+            if rank==0: logger.info(f'\tSim. time step {step}')
             step+=1
         comm.Barrier()
         timers['simulation'].append(perf_counter() - tic_s)
+        train_data = generate_training_data(step, args.problem_size, problem_def['coords'])
 
         # Send training data
         tic_d = perf_counter()
@@ -206,8 +208,8 @@ def main():
     if rank==0:
         logger.info(f'\nFOM:')
         # FOM 1
-        problem_size = size * problem_def['n_nodes'] * problem_def['n_features'] / 1.0e6
-        fom_problem = problem_size
+        ml_problem_size = size * problem_def['n_nodes'] * problem_def['n_features'] / 1.0e6
+        fom_problem = ml_problem_size
         fom_time = timers_avg['workflow']
         aurora_workflow_steps = args.workflow_steps
         fom_steps = 1 + 0.1 * (args.workflow_steps - aurora_workflow_steps) / aurora_workflow_steps
@@ -215,16 +217,14 @@ def main():
         logger.info(f'Global workflow FOM: {fom_1:>4e}')
 
         # FOM 2
-        n_bytes = train_data.itemsize
-        problem_size_bytes = size * problem_def['n_nodes'] * problem_def['n_features'] * 2 * n_bytes
-        problem_size_GB = problem_size_bytes / 1024**3
-        fom_simulation = problem_size / timers_avg['simulation_step']
-        fom_data_send = problem_size_GB  / timers_avg['data_send']
-        fom_inference = problem_size / timers_avg['inference']
+        gmres_problem_size = size * problem_def['n_nodes_gmres'] / 1.0e6
+        fom_simulation = gmres_problem_size / timers_avg['simulation_step']
+        n_bytes = np.array([0], dtype=np.float64).itemsize
+        send_problem_size_GB = size * problem_def['n_nodes'] * problem_def['n_features'] * 2 * n_bytes / 1024**3
+        fom_data_send = send_problem_size_GB  / timers_avg['data_send']
+        fom_inference = ml_problem_size / timers_avg['inference']
         logger.info(f'Simulation FOM: {fom_simulation:>4e}')
         logger.info(f'Training Data Send FOM:  {fom_data_send:>4e}')
-        logger.info(f'Training FOM: 0')
-        logger.info(f'Model Receive FOM:  0')
         logger.info(f'Inference FOM: {fom_inference:>4e}')
 
     # Finalize MPI
