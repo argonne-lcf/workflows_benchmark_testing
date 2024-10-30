@@ -245,7 +245,9 @@ def main():
                 loss.backward()
                 optimizer.step()
             
-                dist.all_reduce(loss, op=dist.ReduceOp.AVG)
+                #dist.all_reduce(loss, op=dist.ReduceOp.AVG) # not implemented in oneCCL
+                dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                loss /= size
                 if rank==0: logger.info(f'\tIter {train_iter}: avg_loss = {loss:>4e}')
                 # may need a syc call here
                 timers['training_iter'].append(perf_counter() - tic_t_i)

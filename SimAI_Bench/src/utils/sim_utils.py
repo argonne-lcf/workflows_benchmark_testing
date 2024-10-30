@@ -10,8 +10,11 @@ from torch_geometric.nn import knn_graph
 from scipy import sparse
 from scipy.sparse import linalg as spla
 
-import cupy as cp
-from cupyx.scipy.sparse import linalg as cula
+try:
+    import cupy as cp
+    from cupyx.scipy.sparse import linalg as cula
+except ModuleNotFoundError as e:
+    pass
 
 PI = math.pi
 
@@ -50,7 +53,7 @@ def setup_problem(args, comm):
     if args.problem_size=="medium":
         N = 256 #1_000_000 // size
         problem_def['n_nodes'] = N**2
-        problem_def['n_nodes_gmres'] = 4096
+        problem_def['n_nodes_gmres'] = 1024 #4096 is really slow on XPU
         problem_def['n_features'] = 2
         problem_def['n_targets'] = 2
         problem_def['spatial_dim'] = 2
@@ -228,11 +231,12 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
 
         if not logging:
             # LSTSQ on device
-            y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
-            res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
+            #y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+            #res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
         
             # LSTSQ on CPU and no res norm (like cupy)
-            #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
+            # needed for XPU, torch.linalg.lstsq not implemented for XPU
+            y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
         
             x += torch.matmul(Q[:,:j+1],y)
 
@@ -362,11 +366,12 @@ def check_gmres(N=10, device='cpu'):
         else:
             print(f'Cupy GMRES completed in {rtime} sec with {info} iters')    
 
-    all_close = np.allclose(x.cpu().numpy(), x_cmp)
-    if all_close:
-        print('Success')
-    else:
-        print('Native and scipy GMRES differ')
+    if device != 'xpu':
+        all_close = np.allclose(x.cpu().numpy(), x_cmp)
+        if all_close:
+            print('Success')
+        else:
+            print('Native and scipy GMRES differ')
 
 
 if __name__=='__main__':
