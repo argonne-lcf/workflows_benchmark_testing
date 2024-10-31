@@ -234,12 +234,14 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
             #y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
             #res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
         
-            # LSTSQ on CPU and no res norm (like cupy)
+            # LSTSQ on CPU and no res norm
             # needed for XPU, torch.linalg.lstsq not implemented for XPU
             #y = torch.linalg.lstsq(H[:j+2,:j+1].cpu(), e[:j+2].cpu()).solution.to(device)
 
-            # LSTSQ on CPU with numpy
-            y = torch.from_numpy(np.linalg.lstsq(H[:j+2,:j+1].cpu().numpy(), e[:j+2].cpu().numpy())[0]).to(device)
+            # LSTSQ on CPU with numpy and no res norm (like cupy)
+            y = torch.from_numpy(
+                np.linalg.lstsq(H[:j+2,:j+1].cpu().numpy(), e[:j+2].cpu().numpy(), rcond=None)[0]
+            ).to(device)
  
         x += torch.matmul(Q[:,:j+1],y)
 

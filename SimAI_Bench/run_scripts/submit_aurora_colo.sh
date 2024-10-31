@@ -1,4 +1,17 @@
-#!/bin/bash
+#!/bin/bash -l
+#PBS -S /bin/bash
+#PBS -N simai
+#PBS -l walltime=00:30:00
+#PBS -l select=1
+#PBS -k doe
+#PBS -j oe
+#PBS -A Aurora_deployment
+#PBS -q lustre_scaling
+#PBS -V
+##PBS -m be
+##PBS -M rbalin@anl.gov
+
+cd $PBS_O_WORKDIR
 
 # Load modules
 module load frameworks/2024.2.1_u1
