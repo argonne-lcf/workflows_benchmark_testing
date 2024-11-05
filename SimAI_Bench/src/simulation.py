@@ -2,7 +2,7 @@ import numpy as np
 from argparse import ArgumentParser
 import logging
 from datetime import datetime
-from time import perf_counter
+from time import perf_counter, sleep
 import psutil
 
 from adios2 import Stream, Adios, bindings
@@ -108,6 +108,26 @@ def main():
     comm.Barrier()
     if rank==0: logger.info('Simulation sent problem definition')
 
+    # Set device to run on
+    torch.set_num_threads(1)
+    gpu_device = None
+    if torch.cuda.is_available():
+        gpu_device = torch.device('cuda')
+        cuda_id = rankl if torch.cuda.device_count()>1 else 0
+        assert cuda_id>=0 and cuda_id<torch.cuda.device_count(), \
+                   f"Assert failed: cuda_id={cuda_id} and {torch.cuda.device_count()} available devices"
+        torch.cuda.set_device(cuda_id)
+    elif torch.xpu.is_available():
+        gpu_device = torch.device('xpu')
+        xpu_id = rankl if torch.xpu.device_count()>1 else 0
+        assert xpu_id>=0 and xpu_id<torch.xpu.device_count(), \
+                   f"Assert failed: xpu_id={xpu_id} and {torch.xpu.device_count()} available devices"
+        torch.xpu.set_device(xpu_id)
+    if (rank == 0):
+        logger.info(f"\nFound GPU device: {gpu_device}\n")
+    sim_device = gpu_device if (args.simulation_device != 'cpu') else torch.device('cpu')
+    infer_device = gpu_device if (args.inference_device != 'cpu') else torch.device('cpu')
+
     # Instantiate and setup the model
     model = GNN(args, problem_def['n_features'], problem_def['spatial_dim'])
     model.setup_local_graph(problem_def['coords'], problem_def['edge_index'])
@@ -115,8 +135,8 @@ def main():
     elif (args.inference_precision == "fp64"): model.double(); dtype=torch.float64
     elif (args.inference_precision == "fp16"): model.half(); dtype=torch.float16
     elif (args.inference_precision == "bf16"): model.bfloat16(); dtype=torch.bfloat16
-    if (args.inference_device != 'cpu'): model.to(args.inference_device)
-
+    model.to(infer_device)
+    
     # Loop over workflow steps
     step = 0
     timers = {
@@ -136,7 +156,7 @@ def main():
         tic_s = perf_counter()
         for istep_s in range(args.simulation_steps):
             tic_s_s = perf_counter()
-            simulation_step(problem_def['n_nodes_gmres'], args.simulation_device)
+            x, res = simulation_step(problem_def['n_nodes_gmres'], sim_device)
             timers['simulation_step'].append(perf_counter() - tic_s_s)
             if rank==0: logger.info(f'\tSim. time step {step} in {timers["simulation_step"][-1]}')
             step+=1
@@ -165,7 +185,7 @@ def main():
                 weights_shape = stream.read_attribute(name+'/shape')
                 if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
                 with torch.no_grad():
-                    param.data = weights.to(args.inference_device)
+                    param.data = weights.to(infer_device)
             stream.end_step()
         timers['model_receive'].append(perf_counter() - tic_m)
         comm.Barrier()
@@ -175,22 +195,22 @@ def main():
         tic_i = perf_counter()
         model.eval()
         if istep_w==0:
-            pos = torch.from_numpy(problem_def['coords']).type(dtype).to(args.inference_device)
-            ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(args.inference_device)
-        inputs = torch.from_numpy(train_data[:,:problem_def['n_features']]).type(dtype).to(args.inference_device)
+            pos = torch.from_numpy(problem_def['coords']).type(dtype).to(infer_device)
+            ei = torch.from_numpy(problem_def['edge_index']).type(torch.int64).to(infer_device)
+        inputs = torch.from_numpy(train_data[:,:problem_def['n_features']]).type(dtype).to(infer_device)
         if inputs.ndim<2: inputs = inputs.reshape(-1,1)
-        outputs = torch.from_numpy(train_data[:,problem_def['n_features']:]).type(dtype).to(args.inference_device)
+        outputs = torch.from_numpy(train_data[:,problem_def['n_features']:]).type(dtype).to(infer_device)
         if outputs.ndim<2: outputs = outputs.reshape(-1,1)
         with torch.no_grad():
             prediction = model(inputs, ei, pos)
             local_error = model.acc_fn(prediction, outputs)
-        global_avg_error = comm.allreduce(local_error) / size
+        global_avg_error = comm.allreduce(local_error.cpu()) / size
         comm.Barrier()
         timers['inference'].append(perf_counter() - tic_i)
         if rank==0: logger.info(f'\tPerformed inference with global error: {global_avg_error:>4e}')
 
         # Debug
-        #print(istep_w,'simulation rank ',rank,' : ',torch.sum(model(torch.ones((problem_def['n_nodes'],problem_def['n_features']),dtype=dtype,device=args.inference_device),ei,pos)),flush=True)
+        #print(istep_w,'simulation rank ',rank,' : ',torch.sum(model(torch.ones((problem_def['n_nodes'],problem_def['n_features']),dtype=dtype,device=infer_device),ei,pos)),flush=True)
 
         # Print workflow step time
         time_w = perf_counter() - tic_w

@@ -151,19 +151,20 @@ def generate_training_data(step: int, problem_size: str, coords: np.ndarray):
 
 
 # Perform a simulation step
-def simulation_step(N: int, device: str):
+def simulation_step(N: int, device: torch.device):
     """Perform a step of the simulation, which invilved GMRES solves
     """
-    torch_device = torch.device(device)
     max_iter = 200
     restart = 50
-    A = torch.randn(N, N, device=torch_device, dtype=torch.float64)
-    b = torch.randn(N, device=torch_device, dtype=torch.float64)
-    gmres(A, b, 
-          tol=1e-7,
-          max_iter=N,
-          restart=min(N,restart)
+    A = torch.randn(N, N, device=device, dtype=torch.float64)
+    b = torch.randn(N, device=device, dtype=torch.float64)
+    x, res, iters = gmres(
+                          A, b, 
+                          tol=1e-7,
+                          max_iter=max_iter,
+                          restart=min(N,restart)
     )
+    return x, res
 
 
 # GMRES

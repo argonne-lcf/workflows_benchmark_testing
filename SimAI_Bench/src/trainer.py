@@ -2,7 +2,7 @@ import os
 import io
 import socket
 import numpy as np
-from time import perf_counter
+from time import perf_counter, sleep
 import logging
 from argparse import ArgumentParser
 from datetime import datetime, timedelta
