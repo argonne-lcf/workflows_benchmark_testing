@@ -12,6 +12,10 @@ mpi4py.rc.initialize = False
 from mpi4py import MPI
 
 import torch
+try:
+    import intel_extension_for_pytorch as ipex
+except ModuleNotFoundError as e:
+    pass
 
 from utils.logger import MPIFileHandler
 from utils.sim_utils import setup_problem, simulation_step, generate_training_data
@@ -33,7 +37,7 @@ def main():
     parser = ArgumentParser(description='SimAI-Bench Simulation')
     parser.add_argument('--problem_size', default='small', type=str, choices=['small','medium','large'], help='Size of science problem to set up')
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
-    parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
+    parser.add_argument('--logging', default='info', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
     parser.add_argument('--simulation_steps', type=int, default=2, help='Number of simulation steps to execute between training data transfers')
     parser.add_argument('--simulation_device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run simulation (GMRES) on')
@@ -134,7 +138,7 @@ def main():
             tic_s_s = perf_counter()
             simulation_step(problem_def['n_nodes_gmres'], args.simulation_device)
             timers['simulation_step'].append(perf_counter() - tic_s_s)
-            if rank==0: logger.info(f'\tSim. time step {step}')
+            if rank==0: logger.info(f'\tSim. time step {step} in {timers["simulation_step"][-1]}')
             step+=1
         comm.Barrier()
         timers['simulation'].append(perf_counter() - tic_s)

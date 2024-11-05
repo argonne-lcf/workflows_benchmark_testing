@@ -29,7 +29,6 @@ export OMP_PLACES=threads
 NODES=$(cat $PBS_NODEFILE | wc -l)
 PROCS_PER_NODE=6
 PROCS=$((NODES * PROCS_PER_NODE))
-JOBID=$(echo $PBS_JOBID | awk '{split($1,a,"."); print a[1]}')
 echo Number of nodes: $NODES
 echo Number of simulation ranks: $PROCS
 echo Number of simulation ranks per node: $PROCS_PER_NODE
@@ -73,4 +72,8 @@ mpiexec --pmi=pmix --envall -n $PROCS --ppn $PROCS_PER_NODE --cpu-bind=list:53:6
 wait
 echo `date`
 
+# Clean up
+JOBID=$(echo $PBS_JOBID | awk '{split($1,a,"."); print a[1]}')
+mkdir $JOBID
+mv sim_* train_* $JOBID
 

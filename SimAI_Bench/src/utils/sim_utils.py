@@ -5,6 +5,10 @@ import math
 from mpipartition import Partition
 
 import torch
+try:
+    import intel_extension_for_pytorch as ipex
+except ModuleNotFoundError as e:
+    pass
 from torch_geometric.nn import knn_graph
 
 from scipy import sparse
@@ -325,18 +329,22 @@ def check_gmres(N=10, device='cpu'):
     b = np.random.rand(N).astype(np.float64)
     
     # Native
-    rtime = perf_counter()
-    x, res, iters = gmres(
+    times = []
+    for i in range(4):
+        rtime = perf_counter()
+        x, res, iters = gmres(
                           torch.from_numpy(A).to(torch_device),
                           torch.from_numpy(b).to(torch_device),
                           tol=1e-6,
                           restart=min(b.size,restart),
                           max_iter=max_iter,
                           logging=logging
-    )
-    rtime = perf_counter() - rtime
-    print(f'Native GMRES completed in {rtime} sec with {iters} iters and residual {res.item()}')
-    
+        )
+        rtime = perf_counter() - rtime
+        print(f'Native GMRES completed in {rtime} sec with {iters} iters and residual {res.item()}')
+        if i>0: times.append(rtime)
+    print(f'Native GMRES average runtime [sec]: {sum(times)/len(times)}')
+ 
     # Scipy
     if device == 'cpu':
         callback = scipy_gmres_callback() if logging else None
@@ -356,20 +364,24 @@ def check_gmres(N=10, device='cpu'):
     
     # Cupy
     elif 'cuda' in device:
-        rtime = perf_counter()
-        x_cmp, info = cula.gmres(
+        times = []
+        for i in range(4):
+            rtime = perf_counter()
+            x_cmp, info = cula.gmres(
                                  cp.asarray(A), 
                                  cp.asarray(b), 
                                  restart=min(b.size,restart), 
                                  maxiter=max_iter, 
                                  atol=1e-6
-        )
-        rtime = perf_counter() - rtime
-        x_cmp = cp.asnumpy(x_cmp)
-        if info == 0:
-            print(f'Cupy GMRES converged successfully in {rtime} sec')
-        else:
-            print(f'Cupy GMRES completed in {rtime} sec with {info} iters')    
+            )
+            rtime = perf_counter() - rtime
+            x_cmp = cp.asnumpy(x_cmp)
+            if info == 0:
+                print(f'Cupy GMRES converged successfully in {rtime} sec')
+            else:
+                print(f'Cupy GMRES completed in {rtime} sec with {info} iters')    
+            if i>0: times.append(rtime)
+        print(f'Cupy GMRES average runtime [sec]: {sum(times)/len(times)}')
 
     if device != 'xpu':
         all_close = np.allclose(x.cpu().numpy(), x_cmp)

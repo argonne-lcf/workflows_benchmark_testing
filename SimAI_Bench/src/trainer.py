@@ -15,9 +15,19 @@ mpi4py.rc.initialize = False
 from mpi4py import MPI
 
 import torch
+try:
+    import intel_extension_for_pytorch as ipex
+except ModuleNotFoundError as e:
+    pass
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
+try:
+    import oneccl_bindings_for_pytorch
+    ONECCL = True
+except ModuleNotFoundError as e:
+    ONECCL = False
+    pass
 
 from utils.logger import MPIFileHandler
 from gnn.model import GNN
@@ -40,7 +50,7 @@ def main():
     parser = ArgumentParser(description='SimAI-Bench Trainer')
     parser.add_argument('--device', default='cuda', type=str, choices=['cpu', 'xpu', 'cuda'], help='Device to run training on')
     parser.add_argument('--ppn', default=1, type=int, help='Number of MPI processes per node')
-    parser.add_argument('--logging', default='debug', type=str, choices=['debug', 'info'], help='Level of logging')
+    parser.add_argument('--logging', default='info', type=str, choices=['debug', 'info'], help='Level of logging')
     parser.add_argument('--workflow_steps', type=int, default=2, help='Number of workflow steps to execute')
     parser.add_argument('--training_iters', type=int, default=5, help='Number of training iterations to execute per workflow step')
     parser.add_argument('--precision', default='fp32', type=str, choices=['fp32', 'tf32', 'fp64', 'fp16', 'bf16'], help='Data precision used for training')
@@ -75,18 +85,6 @@ def main():
             core_list = []
         logger.debug(f"Hello from MPI rank {rank}/{size}, local rank {rankl}, " \
                      +f"cores {core_list}, and node {name}")
-
-    # Intel imports
-    try:
-        import intel_extension_for_pytorch
-    except ModuleNotFoundError as e:
-        if rank==0: logger.warning(f'{e}')
-    try:
-        import oneccl_bindings_for_pytorch
-        ONECCL = True
-    except ModuleNotFoundError as e:
-        ONECCL = False
-        if rank==0: logger.warning(f'{e}')
 
     # Initialize Torch Distributed
     os.environ['RANK'] = str(rank)
@@ -164,7 +162,7 @@ def main():
     elif (args.device=='xpu'):
         if torch.xpu.is_available():
             device = torch.device(args.device)
-            xpu_id = rankl if torch.xpu.device_count()>1 else 0
+            xpu_id = rankl+6 if torch.xpu.device_count()>1 else 0
             assert xpu_id>=0 and xpu_id<torch.xpu.device_count(), \
                    f"Assert failed: xpu_id={xpu_id} and {torch.xpu.device_count()} available devices"
             torch.xpu.set_device(xpu_id)
