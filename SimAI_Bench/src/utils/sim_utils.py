@@ -221,15 +221,26 @@ def gmres(A, b, x0=None, P=None, tol=1e-5, max_iter=200, restart=None, logging=F
         for j in range(n_krylov):
             z = torch.matmul(P,q)
             u = torch.matmul(A, z)
-            h = torch.matmul(Q[:,:j+1].t(),u)
+       
+            # Cupy
+            #h = torch.matmul(Q[:,:j+1].t(),u)
+            
+            # dot product
+            h = torch.empty((j+1,), dtype=dtype, device=device)
+            for i in range(j+1):
+                h[i] = torch.dot(u,Q[:,i])
+
             u -= torch.matmul(Q[:,:j+1],h)
             H[:j+1,j] = h
             H[j+1,j] = torch.linalg.norm(u)
             q = u / H[j+1,j]
             Q[:,j+1] = q
             if logging:
-                # LSTSQ on device every iter
-                y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+                # LSTSQ on every iter
+                #y = torch.linalg.lstsq(H[:j+2,:j+1], e[:j+2]).solution
+                y = torch.from_numpy(
+                    np.linalg.lstsq(H[:j+2,:j+1].cpu().numpy(), e[:j+2].cpu().numpy(), rcond=None)[0]
+                ).to(device)
                 res_norm = torch.linalg.norm(torch.matmul(H[:j+2,:j+1],y) - e[:j+2])
                 print(f'iter {iters}\tres = {res_norm.item()}',flush=True)
             iters+=1
@@ -322,6 +333,7 @@ class scipy_gmres_callback(object):
 def check_gmres(N=10, device='cpu'):
     """Compare GMRES implementation to known solution or to scipy solution
     """
+    np.random.seed(seed=12345)
     logging = False
     restart = 50
     max_iter = 200
@@ -331,7 +343,7 @@ def check_gmres(N=10, device='cpu'):
     
     # Native
     times = []
-    for i in range(4):
+    for i in range(2):
         rtime = perf_counter()
         x, res, iters = gmres(
                           torch.from_numpy(A).to(torch_device),
