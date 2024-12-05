@@ -7,7 +7,6 @@
 #PBS -j oe
 #PBS -A Aurora_deployment
 #PBS -q lustre_scaling
-#PBS -V
 ##PBS -m be
 ##PBS -M rbalin@anl.gov
 

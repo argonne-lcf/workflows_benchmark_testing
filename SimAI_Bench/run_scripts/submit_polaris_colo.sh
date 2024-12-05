@@ -11,7 +11,6 @@
 ##PBS -q preemptable
 ##PBS -q debug-scaling
 #PBS -q debug
-#PBS -V
 ##PBS -m be
 ##PBS -M rbalin@anl.gov
 
