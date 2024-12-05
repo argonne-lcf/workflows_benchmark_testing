@@ -131,6 +131,7 @@ def main():
     # Instantiate and setup the model
     model = GNN(args, problem_def['n_features'], problem_def['spatial_dim'])
     model.setup_local_graph(problem_def['coords'], problem_def['edge_index'])
+    model_state = model.state_dict()
     if (args.inference_precision == "fp32" or args.inference_precision == "tf32"): model.float(); dtype=torch.float32
     elif (args.inference_precision == "fp64"): model.double(); dtype=torch.float64
     elif (args.inference_precision == "fp16"): model.half(); dtype=torch.float16
@@ -175,22 +176,41 @@ def main():
         comm.Barrier()
         if rank==0: logger.info('\tSent training data')
 
-        # Read model checkpoint
+        # Read model checkpoint looping over model parameters
+        #tic_m = perf_counter()
+        #with Stream(io, 'model', 'r', comm) as stream:
+        #    stream.begin_step()
+        #    for name, param in model.named_parameters():
+        #        count = stream.inquire_variable(name).shape()[0]
+        #        weights = torch.from_numpy(stream.read(name, [0], [count])).type(dtype)
+        #        weights_shape = stream.read_attribute(name+'/shape')
+        #        if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
+        #        with torch.no_grad():
+        #            param.data = weights.to(infer_device)
+        #    stream.end_step()
+        #timers['model_receive'].append(perf_counter() - tic_m)
+        #comm.Barrier()
+        #if rank==0: logger.info('\tRead model checkpoint')
+
+        # Read model checkpoint on rank 0 from state dict and broadcast
         tic_m = perf_counter()
         with Stream(io, 'model', 'r', comm) as stream:
             stream.begin_step()
-            for name, param in model.named_parameters():
-                count = stream.inquire_variable(name).shape()[0]
-                weights = torch.from_numpy(stream.read(name, [0], [count])).type(dtype)
-                weights_shape = stream.read_attribute(name+'/shape')
-                if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
-                with torch.no_grad():
-                    param.data = weights.to(infer_device)
+            if rank==0:
+                for name in model_state.keys():
+                    count = stream.inquire_variable(name).shape()[0]
+                    weights = torch.from_numpy(stream.read(name, [0], [count])).type(dtype)
+                    weights_shape = stream.read_attribute(name+'/shape')
+                    if len(weights_shape)>1: weights = weights.reshape(tuple(weights_shape))
+                    with torch.no_grad():
+                        model_state[name] = weights
             stream.end_step()
+        model_state = comm.bcast(model_state, root=0)
+        model.load_state_dict(model_state, strict=True)
         timers['model_receive'].append(perf_counter() - tic_m)
         comm.Barrier()
         if rank==0: logger.info('\tRead model checkpoint')
-
+        
         # Perform inference
         tic_i = perf_counter()
         model.eval()

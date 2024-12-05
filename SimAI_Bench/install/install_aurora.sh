@@ -5,7 +5,7 @@ module load frameworks/2024.2.1_u1
 python3 -m venv --clear _pyg --system-site-packages
 source _pyg/bin/activate
 
-export LD_LIBRARY_PATH=opt/aurora/24.180.1/frameworks/aurora_nre_models_frameworks-2024.2.1_u1/lib/python3.10/site-packages/torch/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/opt/aurora/24.180.1/frameworks/aurora_nre_models_frameworks-2024.2.1_u1/lib/python3.10/site-packages/torch/lib:$LD_LIBRARY_PATH
 
 # PyTorch Geometric and utils
 pip install torch_geometric==2.5.3 # match Polaris version

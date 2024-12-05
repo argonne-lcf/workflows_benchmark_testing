@@ -104,8 +104,8 @@ def main():
 
     # Initialize ADIOS MPI Communicator
     adios = Adios(comm)
-    aio = adios.declare_io('SimAIBench')
-    aio.set_engine(args.adios_engine)
+    io = adios.declare_io('SimAIBench')
+    io.set_engine(args.adios_engine)
     parameters = {
         'RendezvousReaderCount': '1', # options: 1 for sync, 0 for async
         'QueueFullPolicy': 'Block', # options: Block, Discard
@@ -113,10 +113,10 @@ def main():
         'DataTransport': 'WAN', # options: MPI, WAN,  UCX, RDMA
         'OpenTimeoutSecs': '600', # number of seconds SST is to wait for a peer connection on Open()
     }
-    aio.set_parameters(parameters)
+    io.set_parameters(parameters)
 
     # Read problem definition data
-    with Stream(aio, 'problem_definition', 'r', comm) as stream:
+    with Stream(io, 'problem_definition', 'r', comm) as stream:
         stream.begin_step()
         
         n_nodes = int(stream.read('n_nodes'))
@@ -211,7 +211,7 @@ def main():
 
         # Read training data
         tic_d = perf_counter()
-        with Stream(aio, "train_data", "r", comm) as stream:
+        with Stream(io, "train_data", "r", comm) as stream:
             stream.begin_step()    
             arr = stream.inquire_variable('train_data')
             shape = arr.shape()
@@ -255,24 +255,39 @@ def main():
                 if n_iters == args.training_iters: break
         timers['training'].append(perf_counter() - tic_t)
 
+        # Debug
+        #print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
 
-        # Save model checkpoint
+        # Save model checkpoint as jit trace
         #model.eval()
         #if rank==0:
         #    jit_model = model.module.script_model()
         #    buffer = io.BytesIO()
         #    torch.jit.save(jit_model, buffer)
+        #    # stream.write('model', np.array([buffer]))
 
-        # Debug
-        #print(istep_w,'trainer rank ',rank,' : ',torch.sum(model(torch.ones((n_nodes,n_features),dtype=dtype,device=device),batch.edge_index,batch.pos)),flush=True)
+        # Send model checkpoint looping over model parameters
+        #tic_m = perf_counter()
+        #with Stream(io, 'model', 'w', comm) as stream:
+        #    stream.begin_step()
+        #    if rank == 0:
+        #        for name, param in model.module.named_parameters():
+        #            param_np = param.detach().cpu().numpy()
+        #            arr_size = param_np.size
+        #            stream.write(name, param_np, [arr_size], [0], [arr_size])
+        #            stream.write_attribute(name+'/shape',param_np.shape)
+        #    stream.end_step()
+        #timers['model_send'].append(perf_counter() - tic_m)
+        #comm.Barrier()
+        #if rank==0: logger.info('\tSent model weights')
 
-        # Send model checkpoint
+        # Send model state dict
+        state = model.module.state_dict()
         tic_m = perf_counter()
-        with Stream(aio, 'model', 'w', comm) as stream:
+        with Stream(io, 'model', 'w', comm) as stream:
             stream.begin_step()
             if rank == 0:
-                #stream.write('model', np.array([buffer]))
-                for name, param in model.module.named_parameters():
+                for name, param in state.items():
                     param_np = param.detach().cpu().numpy()
                     arr_size = param_np.size
                     stream.write(name, param_np, [arr_size], [0], [arr_size])
