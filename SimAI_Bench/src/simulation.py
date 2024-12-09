@@ -115,6 +115,8 @@ def main():
         stream.write('coords', problem_def['coords'].flatten(), [arr_size*size], [rank*arr_size], [arr_size])
         arr_size = problem_def['edge_index'].size
         stream.write('edge_index', problem_def['edge_index'].flatten(), [arr_size*size], [rank*arr_size], [arr_size])
+        arr_size = problem_def['neighbor_ranks'].size
+        stream.write('neighbor_ranks', problem_def['neighbor_ranks'].flatten(), [arr_size*size], [rank*arr_size], [arr_size])
         stream.end_step()
     comm.Barrier()
     if rank==0: logger.info('Simulation sent problem definition')

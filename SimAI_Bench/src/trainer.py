@@ -125,6 +125,12 @@ def main():
     parameters['OpenTimeoutSecs'] = '600' # number of seconds producer waits on Open() for consumer
     io.set_parameters(parameters)
 
+    # Randomize the ML-Sim rank pair
+    rng = np.random.default_rng(seed=42)
+    rank_ary = np.arange(size)
+    rng.shuffle(rank_ary)
+    sim_rank = rank_ary[rank]
+
     # Read problem definition data
     with Stream(io, 'problem_definition', 'r', comm) as stream:
         stream.begin_step()
@@ -138,8 +144,8 @@ def main():
         arr = stream.inquire_variable('coords')
         shape = arr.shape()
         count = int(shape[0] / size)
-        start = count * rank
-        if rank == size - 1:
+        start = count * sim_rank
+        if sim_rank == size - 1:
             count += shape[0] % size
         coords = stream.read('coords', [start], [count]).reshape((n_nodes,spatial_dim))
         assert coords.shape[0] == n_nodes and coords.shape[1] == spatial_dim       
@@ -147,11 +153,19 @@ def main():
         arr = stream.inquire_variable('edge_index')
         shape = arr.shape()
         count = int(shape[0] / size)
-        start = count * rank
-        if rank == size - 1:
+        start = count * sim_rank
+        if sim_rank == size - 1:
             count += shape[0] % size
         edge_index = stream.read('edge_index', [start], [count]).reshape((2,n_edges))
         assert edge_index.shape[0] == 2 and edge_index.shape[1] == n_edges
+        
+        arr = stream.inquire_variable('neighbor_ranks')
+        shape = arr.shape()
+        count = int(shape[0] / size)
+        start = count * sim_rank
+        if sim_rank == size - 1:
+            count += shape[0] % size
+        neighbor_ranks = stream.read('neighbor_ranks', [start], [count])
         
         stream.end_step()
     comm.Barrier()
@@ -199,12 +213,6 @@ def main():
 
     # Initialize optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate*size)
-
-    # Randomize the ML-Sim rank pair
-    rng = np.random.default_rng(seed=42)
-    rank_ary = np.arange(size)
-    rng.shuffle(rank_ary)
-    sim_rank = rank_ary[rank]
 
     # Loop over workflow steps
     timers = {
