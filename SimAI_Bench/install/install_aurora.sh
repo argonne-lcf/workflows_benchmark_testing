@@ -10,13 +10,6 @@ export LD_LIBRARY_PATH=/opt/aurora/24.180.1/frameworks/aurora_nre_models_framewo
 # PyTorch Geometric and utils
 pip install torch_geometric==2.5.3 # match Polaris version
 
-# torch_scatter CPU only
-#git clone https://github.com/rusty1s/pytorch_scatter.git
-#cd pytorch_scatter
-#git checkout 2.1.1 
-#pip install .
-#cd ..
-
 # torch_cluster on CPU only
 git clone https://github.com/rusty1s/pytorch_cluster.git
 cd pytorch_cluster
@@ -27,4 +20,25 @@ cd ..
 
 #Other packages
 pip install mpipartition
+
+
+# ADIOS2
+export CRAYPE_LINK_TYPE=dynamic
+git clone https://github.com/ornladios/ADIOS2.git ADIOS2
+mkdir adios2-build && cd adios2-build
+cmake \
+    -DCMAKE_INSTALL_PREFIX=${PWD}/install \
+    -DADIOS2_BUILD_EXAMPLES=ON \
+    -DADIOS2_USE_MPI=ON \
+    -DADIOS2_HAVE_MPI_CLIENT_SERVER=true \
+    -DADIOS2_USE_HDF5=OFF \
+    -DADIOS2_USE_Python=ON \
+    -DADIOS2_USE_SST=ON \
+    -DADIOS2_USE_SSC=ON \
+    -DADIOS2_USE_BZip2=OFF \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    ../ADIOS2 2>&1 | tee adios2_config.log
+make -j 8 2>&1 | tee adios2_build.log
+make install 2>&1 | tee adios2_install.log
+cd ..
 

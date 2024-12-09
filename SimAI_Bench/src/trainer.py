@@ -12,6 +12,7 @@ from adios2 import Stream, Adios, bindings
 
 import mpi4py
 mpi4py.rc.initialize = False
+mpi4py.rc.threads = True # default
 from mpi4py import MPI
 
 import torch
@@ -60,6 +61,8 @@ def main():
     parser.add_argument('--mlp_hidden_layers', type=int, default=2, help='Number of hidden layers for encoder/decoder, edge update, node update layers MLPs')
     parser.add_argument('--message_passing_layers', type=int, default=4, help='Number of GNN message pssing layers')
     parser.add_argument('--adios_engine', type=str, default='SST', choices=['SST'], help='ADIOS2 transport engine')
+    parser.add_argument('--adios_transport', type=str, default='WAN', choices=['WAN','MPI','UCX','RDMA'], help='ADIOS2 transport layer')
+    parser.add_argument('--adios_stream', type=str, default='sync', choices=['sync','async'], help='ADIOS2 streaming configuration')
     args = parser.parse_args()
 
     # Set up logging
@@ -106,13 +109,20 @@ def main():
     adios = Adios(comm)
     io = adios.declare_io('SimAIBench')
     io.set_engine(args.adios_engine)
-    parameters = {
-        'RendezvousReaderCount': '1', # options: 1 for sync, 0 for async
-        'QueueFullPolicy': 'Block', # options: Block, Discard
-        'QueueLimit': '1', # options: 0 for no limit
-        'DataTransport': 'WAN', # options: MPI, WAN,  UCX, RDMA
-        'OpenTimeoutSecs': '600', # number of seconds SST is to wait for a peer connection on Open()
-    }
+    if args.adios_stream == 'sync':
+        parameters = {
+            'RendezvousReaderCount': '1', # producer waits for consumer in Open()
+            'QueueFullPolicy': 'Block', # wait for consumer to get every step
+            'QueueLimit': '1', # only buffer one step
+        }
+    elif args.adios_stream == 'async': 
+        parameters = {
+            'RendezvousReaderCount': '0', # producer does not wait for consumer in Open()
+            'QueueFullPolicy': 'Block', # slow consumer misses out on steps
+            'QueueLimit': '3', # buffer first step
+        }
+    parameters['DataTransport'] = args.adios_transport # options: MPI, WAN, UCX, RDMA
+    parameters['OpenTimeoutSecs'] = '600' # number of seconds producer waits on Open() for consumer
     io.set_parameters(parameters)
 
     # Read problem definition data

@@ -9,6 +9,7 @@ from adios2 import Stream, Adios, bindings
 
 import mpi4py
 mpi4py.rc.initialize = False
+mpi4py.rc.threads = True # default
 from mpi4py import MPI
 
 import torch
@@ -47,6 +48,8 @@ def main():
     parser.add_argument('--mlp_hidden_layers', type=int, default=2, help='Number of hidden layers for encoder/decoder, edge update, node update layers MLPs')
     parser.add_argument('--message_passing_layers', type=int, default=4, help='Number of GNN message pssing layers')
     parser.add_argument('--adios_engine', type=str, default='SST', choices=['SST'], help='ADIOS2 transport engine')
+    parser.add_argument('--adios_transport', type=str, default='WAN', choices=['WAN','MPI','UCX','RDMA'], help='ADIOS2 transport layer')
+    parser.add_argument('--adios_stream', type=str, default='sync', choices=['sync','async'], help='ADIOS2 streaming configuration')
     args = parser.parse_args()
 
     # Set up logging
@@ -81,13 +84,21 @@ def main():
     adios = Adios(comm)
     io = adios.declare_io('SimAIBench')
     io.set_engine(args.adios_engine)
-    parameters = {
-        'RendezvousReaderCount': '1', # options: 1 for sync, 0 for async
-        'QueueFullPolicy': 'Block', # options: Block, Discard
-        'QueueLimit': '1', # options: 0 for no limit
-        'DataTransport': 'WAN', # options: MPI, WAN,  UCX, RDMA
-        'OpenTimeoutSecs': '600', # number of seconds SST is to wait for a peer connection on Open()
-    }
+    if args.adios_stream == 'sync':
+        parameters = {
+            'RendezvousReaderCount': '1', # producer waits for consumer in Open()
+            'QueueFullPolicy': 'Block', # wait for consumer to get every step
+            'QueueLimit': '1', # only buffer one step
+        }
+    # TODO: async parameters need to be defined better and tested
+    elif args.adios_stream == 'async':
+        parameters = {
+            'RendezvousReaderCount': '0', # producer does not wait for consumer in Open()
+            'QueueFullPolicy': 'Block', # slow consumer misses out on steps
+            'QueueLimit': '3', # buffer first step
+        }
+    parameters['DataTransport'] = args.adios_transport # options: MPI, WAN, UCX, RDMA
+    parameters['OpenTimeoutSecs'] = '600' # number of seconds producer waits on Open() for consumer
     io.set_parameters(parameters)
 
     # Setup problem and send definition to trainer
@@ -125,8 +136,10 @@ def main():
         torch.xpu.set_device(xpu_id)
     if (rank == 0):
         logger.info(f"\nFound GPU device: {gpu_device}\n")
-    sim_device = gpu_device if (args.simulation_device != 'cpu') else torch.device('cpu')
-    infer_device = gpu_device if (args.inference_device != 'cpu') else torch.device('cpu')
+    sim_device = torch.device('cpu') if (args.simulation_device == 'cpu' or gpu_device is None) else gpu_device
+    infer_device = torch.device('cpu') if (args.inference_device == 'cpu' or gpu_device is None) else gpu_device
+    #sim_device = gpu_device if (args.simulation_device != 'cpu') else torch.device('cpu')
+    #infer_device = gpu_device if (args.inference_device != 'cpu') else torch.device('cpu')
 
     # Instantiate and setup the model
     model = GNN(args, problem_def['n_features'], problem_def['spatial_dim'])
@@ -152,8 +165,8 @@ def main():
     for istep_w in range(args.workflow_steps):
         tic_w = perf_counter()
         if rank==0: logger.info(f'Step {istep_w}')
-        
-         # Imitating simulation steps
+ 
+        # Imitating simulation steps
         tic_s = perf_counter()
         for istep_s in range(args.simulation_steps):
             tic_s_s = perf_counter()
