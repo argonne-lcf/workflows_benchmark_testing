@@ -6,6 +6,7 @@ module load spack-pe-gnu
 module load adios2/2.10.0-cuda
 module load cudatoolkit-standalone/12.4.0
 source /eagle/datascience/balin/ALCF-4/venv/_adios2/bin/activate
+export PYTHONPATH=$PYTHONPATH:/soft/spack/hpc/0.8.1/install/gnu/linux-sles15-zen3/gcc-12.3.0/adios2-2.10.0-iulyl5c6rel7eyndczxxmsfnzrgkhasg/venv-1.0-woyk2bpzqw3qpo6y5zho744eekwz22pz/lib/python3.10/site-packages/
 echo Loaded modules:
 module list
 
@@ -18,7 +19,6 @@ export OMP_PLACES=threads
 NODES=$(cat $PBS_NODEFILE | wc -l)
 PROCS_PER_NODE=2
 PROCS=$((NODES * PROCS_PER_NODE))
-JOBID=$(echo $PBS_JOBID | awk '{split($1,a,"."); print a[1]}')
 echo Number of nodes: $NODES
 echo Number of simulation ranks: $PROCS
 echo Number of simulation ranks per node: $PROCS_PER_NODE
@@ -35,9 +35,12 @@ fi
 # Workflow parameters
 PROBLEM="medium"
 STEPS=2
-SIM_STEPS=10
-TRAIN_STEPS=10
+SIM_STEPS=3
+TRAIN_STEPS=3
 DEVICE="cuda"
+ENGINE="SST"
+LAYER="WAN"
+STREAM="sync"
 
 # Run
 EXE_PATH=/eagle/datascience/balin/ALCF-4/workflows_benchmark_testing/SimAI_Bench/src
@@ -50,13 +53,16 @@ mpiexec -n $PROCS --ppn $PROCS_PER_NODE --cpu-bind=list:24:16 ./affinity_polaris
     --workflow_steps $STEPS \
     --simulation_steps $SIM_STEPS \
     --simulation_device $DEVICE \
-    --inference_device $DEVICE &
+    --inference_device $DEVICE \
+    --adios_engine $ENGINE --adios_transport $LAYER --adios_stream $STREAM \
+    &
 mpiexec -n $PROCS --ppn $PROCS_PER_NODE --cpu-bind=list:8:1 ./affinity_polaris.sh $PROCS_PER_NODE $PROCS_PER_NODE \
     python $EXE_PATH/trainer.py \
     --ppn $PROCS_PER_NODE \
     --workflow_steps $STEPS \
     --training_iters $TRAIN_STEPS \
-    --device $DEVICE
+    --device $DEVICE \
+    --adios_engine $ENGINE --adios_transport $LAYER --adios_stream $STREAM
 wait
 echo `date`
 
