@@ -10,6 +10,7 @@ from adios2 import Stream, Adios, bindings
 import mpi4py
 mpi4py.rc.initialize = False
 mpi4py.rc.threads = True # default
+mpi4py.rc.thread_level = "multiple"
 from mpi4py import MPI
 
 import torch

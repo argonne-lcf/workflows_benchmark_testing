@@ -13,6 +13,7 @@ from adios2 import Stream, Adios, bindings
 import mpi4py
 mpi4py.rc.initialize = False
 mpi4py.rc.threads = True # default
+mpi4py.rc.thread_level = "multiple"
 from mpi4py import MPI
 
 import torch
@@ -193,9 +194,14 @@ def main():
     elif (args.precision == "fp64"): model.double(); dtype=torch.float64
     elif (args.precision == "fp16"): model.half(); dtype=torch.float16
     elif (args.precision == "bf16"): model.bfloat16(); dtype=torch.bfloat16
-    
-    if (device.type != 'cpu'): model.to(device)
-    model = DDP(model, broadcast_buffers=False, gradient_as_bucket_view=True)
+
+    # DDP wrapper call before model offload to prevent error with affinity on Aurora/Sunspot    
+    if args.device=='xpu' and torch.xpu.device_count()==1:
+        model = DDP(model, broadcast_buffers=False, gradient_as_bucket_view=True)
+        if (device.type != 'cpu'): model.to(device)
+    else: 
+        if (device.type != 'cpu'): model.to(device)
+        model = DDP(model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
     # Initialize optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate*size)

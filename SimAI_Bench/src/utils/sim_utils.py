@@ -333,7 +333,7 @@ class scipy_gmres_callback(object):
 def check_gmres(N=10, device='cpu'):
     """Compare GMRES implementation to known solution or to scipy solution
     """
-    np.random.seed(seed=12345)
+    np.random.seed(seed=42)
     logging = False
     restart = 50
     max_iter = 200
