@@ -36,6 +36,7 @@ def setup_problem(args, comm):
                    'spatial_dim': 1,
                    'coords': np.empty([1]),
                    'edge_index': np.empty([1]),
+                   'neighbor_ranks': np.empty([1])
     }
 
     if args.problem_size=="small":
@@ -46,7 +47,7 @@ def setup_problem(args, comm):
         problem_def['n_targets'] = 1
         problem_def['spatial_dim'] = 2
         problem_def['coords'] = np.empty((problem_def['n_nodes'], problem_def['spatial_dim']), dtype=np.double)
-        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm)
+        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm, create_neighbor_topo=True)
         part_origin = partition.origin
         part_extent = partition.extent
         x = np.linspace(part_origin[0],part_origin[0]+part_extent[0],num=N,dtype=np.double)*4*PI-2*PI
@@ -62,7 +63,7 @@ def setup_problem(args, comm):
         problem_def['n_targets'] = 2
         problem_def['spatial_dim'] = 2
         problem_def['coords'] = np.empty((problem_def['n_nodes'], problem_def['spatial_dim']), dtype=np.double)
-        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm)
+        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm, create_neighbor_topo=True)
         part_origin = partition.origin
         part_extent = partition.extent
         x = np.linspace(part_origin[0],part_origin[0]+part_extent[0],num=N,dtype=np.double)*4*PI-2*PI
@@ -78,7 +79,7 @@ def setup_problem(args, comm):
         problem_def['n_targets'] = 3
         problem_def['spatial_dim'] = 3
         problem_def['coords'] = np.empty((problem_def['n_nodes'], problem_def['spatial_dim']), dtype=np.double)
-        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm)
+        partition = Partition(dimensions=problem_def['spatial_dim'], comm=comm, create_neighbor_topo=True)
         part_origin = partition.origin
         part_extent = partition.extent
         x = np.linspace(part_origin[0],part_origin[0]+part_extent[0],num=N,dtype=np.double)*4*PI-2*PI
@@ -91,6 +92,7 @@ def setup_problem(args, comm):
      
     problem_def['edge_index'] = setup_graph(problem_def['coords'])
     problem_def['n_edges'] = problem_def['edge_index'].shape[1]
+    problem_def['neighbor_ranks'] = np.array(partition.neighbor_ranks)
     return problem_def
 
 
