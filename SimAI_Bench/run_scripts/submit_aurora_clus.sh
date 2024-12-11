@@ -2,7 +2,7 @@
 #PBS -S /bin/bash
 #PBS -N simai
 #PBS -l walltime=00:30:00
-#PBS -l select=1
+#PBS -l select=2
 #PBS -k doe
 #PBS -j oe
 #PBS -A Aurora_deployment
@@ -15,7 +15,7 @@ cd $PBS_O_WORKDIR
 # Load modules
 module load frameworks/2024.2.1_u1
 source /flare/Aurora_deployment/balin/ALCF-4/env_2024.2.1/_pyg/bin/activate
-export PYTHONPATH=$PYTHONPATH:/opt/aurora/24.180.1/spack/unified/0.8.0/install/linux-sles15-x86_64/oneapi-2024.07.30.002/adios2-2.10.0-z7daajo/venv-1.0-zrqfop4/lib/python3.10/site-packages/
+export PYTHONPATH=$PYTHONPATH:/flare/Aurora_deployment/balin/ALCF-4/build/adios2-build-2/lib/python3.10/site-packages/
 echo Loaded modules:
 module list
 
@@ -25,13 +25,13 @@ export OMP_PROC_BIND=spread
 export OMP_PLACES=threads
 
 # Set up run
-DEPLOYMENT="colocated"
+DEPLOYMENT="clustered"
 NODES=$(cat $PBS_NODEFILE | wc -l)
-SIM_NODES=$NODES
-TRAIN_NODES=$NODES
-SIM_PROCS_PER_NODE=6
+SIM_NODES=$(( $NODES / 2 ))
+TRAIN_NODES=$(( $NODES / 2 ))
+SIM_PROCS_PER_NODE=12
 SIM_PROCS=$((SIM_NODES * SIM_PROCS_PER_NODE))
-TRAIN_PROCS_PER_NODE=6
+TRAIN_PROCS_PER_NODE=12
 TRAIN_PROCS=$((TRAIN_NODES * TRAIN_PROCS_PER_NODE))
 echo Number of total nodes: $NODES
 echo Number of simulation nodes: $SIM_NODES
@@ -84,7 +84,7 @@ EXE_PATH=/flare/Aurora_deployment/balin/ALCF-4/workflows_benchmark_testing/SimAI
 AFFINITY_PATH=/flare/Aurora_deployment/balin/ALCF-4/workflows_benchmark_testing/SimAI_Bench/run_scripts
 
 if ls *.sst 1> /dev/null 2>&1
-then
+then 
     echo Cleaning up old .sst files
     rm *.sst
 fi
@@ -94,22 +94,22 @@ echo `date`
 mpiexec --pmi=pmix --envall --hostfile $SIM_HOSTFILE -n $SIM_PROCS --ppn $SIM_PROCS_PER_NODE \
     --cpu-bind=$SIM_CPU_BIND $AFFINITY_PATH/affinity_aurora.sh $SIM_PROCS_PER_NODE 0 "SIM" \
     python $EXE_PATH/simulation.py \
-    --ppn $PROCS_PER_NODE \
+    --ppn $SIM_PROCS_PER_NODE \
     --problem_size $PROBLEM \
     --workflow_steps $STEPS \
     --simulation_steps $SIM_STEPS \
     --simulation_device $DEVICE \
-    --inference_device $DEVICE &
+    --inference_device $DEVICE \
     --logging $LOGGING \
     --adios_transport $LAYER &
 
 mpiexec --pmi=pmix --envall --hostfile $TRAIN_HOSTFILE -n $TRAIN_PROCS --ppn $TRAIN_PROCS_PER_NODE \
     --cpu-bind=$TRAIN_CPU_BIND $AFFINITY_PATH/affinity_aurora.sh $TRAIN_PROCS_PER_NODE 0 "TRAIN" \
     python $EXE_PATH/trainer.py \
-    --ppn $PROCS_PER_NODE \
+    --ppn $TRAIN_PROCS_PER_NODE \
     --workflow_steps $STEPS \
     --training_iters $TRAIN_STEPS \
-    --device $DEVICE
+    --device $DEVICE \
     --logging $LOGGING \
     --adios_transport $LAYER
 wait
@@ -119,4 +119,3 @@ echo `date`
 JOBID=$(echo $PBS_JOBID | awk '{split($1,a,"."); print a[1]}')
 mkdir $JOBID
 mv sim_* train_* $JOBID
-
